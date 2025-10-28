@@ -1,7 +1,7 @@
 import pandas as pd
 
 # Read the CSV
-df_original = pd.read_csv('tmdb_vote5_quarterly.csv')
+df_original = pd.read_csv('tmdb_final.csv')
 df = df_original.copy()
 
 print("Data Filtering (Vote >= 5.0)")
