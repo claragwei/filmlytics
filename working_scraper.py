@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup
 import json
 import time
 import random
+import pandas as pd
+import os
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -10,13 +12,13 @@ HEADERS = {
                   "Chrome/141.0.0.0 Safari/537.36"
 }
 
-MOVIES = [
-    "https://www.rottentomatoes.com/m/black_phone_2",
-    "https://www.rottentomatoes.com/m/the_conjuring_last_rites",
-    "https://www.rottentomatoes.com/m/good_boy_2025",
-    "https://www.rottentomatoes.com/m/the_strangers_chapter_2",
-    "https://www.rottentomatoes.com/m/the_bad_guys_2"
-]
+# MOVIES = [
+#     "https://www.rottentomatoes.com/m/inception",
+#     "https://www.rottentomatoes.com/m/the_dark_knight",
+#     "https://www.rottentomatoes.com/m/interstellar_2014"
+# ]
+start_row = 3140  # Change this number to start from a different row
+MOVIES = pd.read_csv('mapped.csv')['movieURL'].iloc[start_row:].tolist()
 
 
 def fetch_rt_data(url, max_reviews=20):
@@ -49,7 +51,7 @@ def fetch_rt_data(url, max_reviews=20):
     reviews = fetch_reviews(url, max_reviews)
     return {
         "title": title,
-        "tomatometer": f"{tomatometer}%",
+        "tomatometer": f"{tomatometer}",
         "audience_score": f"{audience_score}%",
         "reviews": reviews
     }
@@ -89,17 +91,51 @@ def fetch_reviews(movie_url, max_reviews):
 
 
 def main():
+    save_file = "rottentomatoes_dataset.json"
     all_movies = []
+
+    # Load progress if exists
+    if os.path.exists(save_file):
+        print("Previous progress found. Loading data...")
+        with open(save_file, "r", encoding="utf-8") as f:
+            all_movies = json.load(f)
+        scraped_urls = {m.get("url") for m in all_movies if m.get("url")}
+    else:
+        scraped_urls = set()
+
+    save_interval = 10
+    counter = len(all_movies)
+
     for url in MOVIES:
+        # Skip movies already scraped
+        if url in scraped_urls:
+            print(f"Skipping already scraped: {url}")
+            continue
+
         print(f"\nFetching {url}")
         movie_data = fetch_rt_data(url, max_reviews=20)
         if movie_data:
+            movie_data["url"] = url  # store URL to identify progress
             all_movies.append(movie_data)
+            scraped_urls.add(url)
+            counter += 1
+
+        # Save every 10 movies
+        if counter % save_interval == 0:
+            print(f"Saving progress at {counter} movies...")
+            with open(save_file, "w", encoding="utf-8") as f:
+                json.dump(all_movies, f, indent=2, ensure_ascii=False)
+
         time.sleep(random.uniform(2, 4))
 
-    with open("rottentomatoes_dataset.json", "w", encoding="utf-8") as f:
+    # Final save
+    print("\nFinal save...")
+    with open(save_file, "w", encoding="utf-8") as f:
         json.dump(all_movies, f, indent=2, ensure_ascii=False)
-    print("\nSaved all data to rottentomatoes_dataset.json")
+
+    print("\nDone. All data saved.")
+
+
 
 
 if __name__ == "__main__":
