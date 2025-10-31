@@ -3,8 +3,8 @@ import pandas as pd
 # =======================
 # 1. Load datasets
 # =======================
-tmdb_file = 'tmdb_vote5_filtered.csv'  # your full TMDB dataset
-rt_file = 'movies.csv'                # RT URLs dataset with 'title' and 'rt_url'
+tmdb_file = 'tmdb_filtered_2.csv'  # your full TMDB dataset
+rt_file = 'movies.csv'                # RT URLs dataset with 'movieTitle' and 'movieURL'
 
 tmdb_df = pd.read_csv(tmdb_file)
 rt_df = pd.read_csv(rt_file)
