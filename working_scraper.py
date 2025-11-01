@@ -12,12 +12,7 @@ HEADERS = {
                   "Chrome/141.0.0.0 Safari/537.36"
 }
 
-# MOVIES = [
-#     "https://www.rottentomatoes.com/m/inception",
-#     "https://www.rottentomatoes.com/m/the_dark_knight",
-#     "https://www.rottentomatoes.com/m/interstellar_2014"
-# ]
-start_row = 3140  # Change this number to start from a different row
+start_row = 1  # Change this number to start from a different row
 MOVIES = pd.read_csv('mapped.csv')['movieURL'].iloc[start_row:].tolist()
 
 
