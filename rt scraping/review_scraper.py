@@ -15,7 +15,7 @@ HEADERS = {
 start_row = 1  # change this to resume at a specific row
 
 # Load only VALID RT URLs (skip N/A rows here for speed)
-df = pd.read_csv("url_mapping/tmdb_with_urls.csv")
+df = pd.read_csv("tmdb_with_urls.csv")
 valid_urls = df[df['url'].str.startswith("http", na=False)]['url'].iloc[start_row:].tolist()
 
 def fetch_rt_data(url, max_reviews=20):
@@ -92,7 +92,7 @@ def fetch_reviews(movie_url, max_reviews):
 
 
 def main():
-    save_file = "rt_reviews_test.json"
+    save_file = "rt_reviews.json"
     all_movies = []
 
     # Resume if progress file exists
