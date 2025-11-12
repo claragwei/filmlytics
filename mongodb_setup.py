@@ -357,8 +357,8 @@ def main():
     # For MongoDB Atlas: Get this from your Atlas dashboard
     # Format: mongodb+srv://<username>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
     
-    CONNECTION_STRING = "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
-    CSV_PATH = "/Users/nidhideshmukh/filmlytics/complete_data.csv"  # Update this path
+    CONNECTION_STRING = "connection_string"
+    CSV_PATH = ""  # Update this path
     
     
     if CONNECTION_STRING == "YOUR_MONGODB_CONNECTION_STRING_HERE":
