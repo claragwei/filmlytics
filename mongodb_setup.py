@@ -344,10 +344,6 @@ def main():
     CSV_PATH = ""  # Update this path
     
     
-    if CONNECTION_STRING == "YOUR_MONGODB_CONNECTION_STRING_HERE":
-        print("❌ Please update the CONNECTION_STRING first!")
-        return
-    
     try:
         # Initialize database manager
         db_manager = MovieDatabaseManager(CONNECTION_STRING)
