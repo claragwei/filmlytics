@@ -1,8 +1,3 @@
-"""
-MongoDB Setup Script for Cinemaniacs Movie Prediction Project
-This script loads your movie CSV data into MongoDB with optimized schema and indexes
-"""
-
 import pymongo
 from pymongo import MongoClient
 import pandas as pd
@@ -13,27 +8,15 @@ import os
 from typing import Dict, List, Any
 
 class MovieDatabaseManager:
-    """
-    Manages MongoDB connection and operations for movie prediction project
-    """
     
     def __init__(self, connection_string: str, database_name: str = "cinemaniacs"):
-        """
-        Initialize MongoDB connection
         
-        Args:
-            connection_string: MongoDB connection URI
-            database_name: Name of the database to use
-        """
         self.client = MongoClient(connection_string)
         self.db = self.client[database_name]
         print(f"✓ Connected to MongoDB database: {database_name}")
     
     def prepare_movie_document(self, row: pd.Series) -> Dict[str, Any]:
-        """
-        Convert a CSV row into a properly structured MongoDB document
-        Handles data type conversions and null values
-        """
+        
         
         # Helper function to parse lists from strings
         def parse_list(value):
