@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix
+from sklearn.metrics import (accuracy_score, roc_auc_score, confusion_matrix,
+                             precision_score, recall_score, f1_score)
 from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -445,11 +446,19 @@ model.fit(X_train, y_train)
 y_pred_test = model.predict(X_test)
 y_pred_proba_test = model.predict_proba(X_test)[:, 1]
 
+# Calculate metrics
 test_accuracy = accuracy_score(y_test, y_pred_test)
+test_precision = precision_score(y_test, y_pred_test)
+test_recall = recall_score(y_test, y_pred_test)
+test_f1 = f1_score(y_test, y_pred_test)
 test_auc = roc_auc_score(y_test, y_pred_proba_test)
 
-print(f"\nAccuracy: {test_accuracy:.2%}")
-print(f"ROC AUC: {test_auc:.4f}")
+print(f"  Accuracy:           {test_accuracy:.4f} ({test_accuracy:.2%})")
+print(f"  Precision:          {test_precision:.4f}")
+print(f"  Recall:             {test_recall:.4f}")
+print(f"  F1-Score:           {test_f1:.4f}")
+print(f"  ROC AUC:            {test_auc:.4f}")
+print("="*60)
 
 # Feature importance
 feature_importance = pd.DataFrame({
@@ -459,60 +468,6 @@ feature_importance = pd.DataFrame({
 
 print("\nTop 15 Most Important Features:")
 print(feature_importance.head(15).to_string(index=False))
-
-# Feature selection - keep features with importance > threshold
-importance_threshold = 0.001
-selected_features = feature_importance[feature_importance['importance'] > importance_threshold]['feature'].tolist()
-removed_features = len(feature_columns) - len(selected_features)
-
-print(f"\nFeature selection:")
-print(f"  Original features: {len(feature_columns)}")
-print(f"  Selected features: {len(selected_features)} (importance > {importance_threshold})")
-print(f"  Removed features: {removed_features}")
-
-# Retrain with selected features if any were removed
-if removed_features > 0:
-    print("\nRetraining with selected features...")
-    X_train_selected = X_train[selected_features]
-    X_test_selected = X_test[selected_features]
-
-    model_selected = xgb.XGBClassifier(
-        **random_search.best_params_,
-        objective='binary:logistic',
-        eval_metric='auc',
-        scale_pos_weight=scale_pos_weight,
-        random_state=42
-    )
-
-    model_selected.fit(X_train_selected, y_train)
-
-    y_pred_test_selected = model_selected.predict(X_test_selected)
-    y_pred_proba_test_selected = model_selected.predict_proba(X_test_selected)[:, 1]
-
-    test_accuracy_selected = accuracy_score(y_test, y_pred_test_selected)
-    test_auc_selected = roc_auc_score(y_test, y_pred_proba_test_selected)
-
-    print(f"\nWith feature selection:")
-    print(f"  Accuracy: {test_accuracy_selected:.2%} (vs {test_accuracy:.2%})")
-    print(f"  ROC AUC: {test_auc_selected:.4f} (vs {test_auc:.4f})")
-
-    # Use selected model if it's better
-    if test_auc_selected >= test_auc:
-        print("  Using selected feature model (better or equal performance)")
-        model = model_selected
-        y_pred_test = y_pred_test_selected
-        y_pred_proba_test = y_pred_proba_test_selected
-        test_accuracy = test_accuracy_selected
-        test_auc = test_auc_selected
-        feature_columns = selected_features
-
-        # Update feature importance
-        feature_importance = pd.DataFrame({
-            'feature': feature_columns,
-            'importance': model.feature_importances_
-        }).sort_values('importance', ascending=False)
-    else:
-        print("  Keeping original model (better performance)")
 
 # Analyze time decay feature importance
 time_decay_features = ['views_exp_decay_30', 'likes_exp_decay_30',
@@ -665,6 +620,12 @@ for idx, feature in enumerate(top_5_features):
         successful = df_model[df_model['is_successful'] == 1][feature]
         unsuccessful = df_model[df_model['is_successful'] == 0][feature]
 
+        # Convert boolean columns to numeric for histogram plotting
+        if successful.dtype == bool:
+            successful = successful.astype(int)
+        if unsuccessful.dtype == bool:
+            unsuccessful = unsuccessful.astype(int)
+
         ax.hist(unsuccessful, bins=30, alpha=0.6, label='Unsuccessful', color='red', edgecolor='black')
         ax.hist(successful, bins=30, alpha=0.6, label='Successful', color='green', edgecolor='black')
         ax.set_xlabel(feature, fontsize=10)
@@ -701,4 +662,3 @@ if 'budget' in df_model.columns:
     plt.tight_layout()
     plt.savefig(os.path.join(output_folder, 'budget_vs_success.png'), dpi=300, bbox_inches='tight')
     plt.close()
-
