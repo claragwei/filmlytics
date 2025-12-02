@@ -7,13 +7,29 @@ Original file is located at
     https://colab.research.google.com/drive/16GQ6mUgkIeGLLOtLJeuVuJA4KI_jKBI5
 """
 
-import random
+!pip uninstall -y torch torchvision torchaudio torch-geometric torch_scatter torch_sparse torch_cluster torch_spline_conv pyg_lib
+!pip uninstall -y torch-scatter torch-sparse torch-cluster torch-spline-conv pyg-lib
+!pip list | grep -E "torch|pyg"
+
+!pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0 \
+  --index-url https://download.pytorch.org/whl/cu124
+
+!pip install pyg-lib torch-scatter torch-sparse torch-cluster torch-spline-conv \
+  -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
+
+!pip install torch-geometric
+
+!pip install pymongo
+
+# improved_hetero_kgcn_full_pipeline.py
+# Full pipeline (Option B improvements): data load -> graph -> improved HeteroKGCN -> train -> eval -> viz
+# Requirements: torch, torch_geometric, sklearn, pymongo, matplotlib, tqdm
+
+import random, time, ast, joblib
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import ast
 from pymongo import MongoClient
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, roc_curve, auc, precision_recall_curve
@@ -21,38 +37,35 @@ from sklearn.model_selection import train_test_split
 from torch_geometric.data import HeteroData
 from torch_geometric.loader import NeighborLoader
 from torch_geometric.nn import HeteroConv, SAGEConv
+from torch.cuda.amp import autocast, GradScaler
 import matplotlib.pyplot as plt
 
-# -----------------------
 # Config
-# -----------------------
 SEED = 160
 random.seed(SEED); np.random.seed(SEED); torch.manual_seed(SEED)
 
-CAT_EMB_DIM = 16
-HIDDEN = 64
+CAT_EMB_DIM = 12      # smaller to save memory
+HIDDEN = 128
 BATCH_SIZE = 256
 NUM_NEIGHBORS = [10, 5]
 MAX_EDGES = 5000
 MAX_CAST_EDGES = 10000
-EPOCHS = 10
-LR = 1e-3
+EPOCHS = 20
+LR = 5e-4
 WEIGHT_DECAY = 1e-5
+PATIENCE = 6
+GRAD_CLIP_NORM = 2.0
 MONGO_URI = "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Device:", device)
 
-# -----------------------
 # 1) Load data from Mongo
-# -----------------------
 client = MongoClient(MONGO_URI)
 df = pd.DataFrame(list(client.cinemaniacs.movies.find({})))
 print("Loaded movies:", len(df))
 
-# -----------------------
 # Helpers
-# -----------------------
 def safe_get(d, key, default=None):
     return d.get(key, default) if isinstance(d, dict) else default
 
@@ -80,9 +93,7 @@ def safe_literal_eval(s):
             return None
     return s
 
-# -----------------------
 # 2) Extract features & parse RT percent labels
-# -----------------------
 # numeric nested fields
 df["budget"] = df["production"].apply(lambda x: safe_get(x, "budget", 0))
 df["runtime"] = df["production"].apply(lambda x: safe_get(x, "runtime", 0))
@@ -108,7 +119,7 @@ df["director"] = df["people"].apply(lambda x: first_or_none(safe_get(x, "directo
 df["cast"] = df["people"].apply(lambda x: safe_get(x, "cast", []))
 df["countries"] = df["production"].apply(lambda x: safe_get(x, "production_countries", []))
 
-# Ensure numeric dtype
+# dtype safety for numeric fields
 num_features = ["budget","runtime","vote_count","vote_average","critic_score_parsed","audience_score_parsed"]
 for f in num_features:
     df[f] = pd.to_numeric(df[f], errors="coerce")
@@ -118,9 +129,7 @@ df["runtime"] = df["runtime"].fillna(0.0)
 df["vote_count"] = df["vote_count"].fillna(0.0)
 df["vote_average"] = df["vote_average"].fillna(0.0)
 
-# -----------------------
 # 2b) Parse diversity and build numeric diversity features
-# -----------------------
 def parse_diversity_row(d):
     out = {
         "female_cast_count": 0,
@@ -140,16 +149,13 @@ def parse_diversity_row(d):
     out["female_cast_count"] = d.get("female_cast_count", 0) or 0
     out["male_cast_count"] = d.get("male_cast_count", 0) or 0
 
-    # percentages stored as 0-100
     out["female_cast_pct"] = (d.get("female_cast_percentage", 0) or 0) / 100.0
     out["gender_balance_score"] = (d.get("gender_balance_score", 0) or 0) / 100.0
 
-    # director gender
     dg = d.get("director_gender", 0)
     out["director_gender"] = dg if isinstance(dg, (int,float)) else 0
     out["female_director"] = 1 if out["director_gender"] == 1 else 0
 
-    # cast_genders may be a string or list
     cast_genders = d.get("cast_genders")
     cast_genders = safe_literal_eval(cast_genders)
     if isinstance(cast_genders, list):
@@ -163,7 +169,6 @@ def parse_diversity_row(d):
             elif g == 3:
                 out["cast_nonbinary_cnt"] += 1
 
-    # defensive types
     for k in out:
         if isinstance(out[k], (list, dict)):
             out[k] = 0
@@ -174,11 +179,9 @@ div_df = pd.DataFrame(list(div_parsed))
 for col in div_df.columns:
     df[col] = div_df[col].fillna(0)
 
-# -----------------------
-# 3) Build label mask & splits (Option B semantics)
-# -----------------------
-labeled_mask = df["audience_score_parsed"].notna()
-labeled_idx = np.where(labeled_mask.values)[0]
+# 3) Build label mask & splits
+labeled_mask = df["audience_score_parsed"].notna().values
+labeled_idx = np.where(labeled_mask)[0]
 print("Labeled movies (audience_score present):", len(labeled_idx), "out of", len(df))
 
 if len(labeled_idx) == 0:
@@ -188,19 +191,15 @@ train_idx, test_idx = train_test_split(labeled_idx, test_size=0.2, random_state=
 train_idx, val_idx = train_test_split(train_idx, test_size=0.125, random_state=SEED)
 print("Split sizes -> train:", len(train_idx), "val:", len(val_idx), "test:", len(test_idx))
 
-# -----------------------
 # 4) Prepare movie numeric feature matrix (include diversity)
-# -----------------------
 movie_feature_cols = [
     "budget","runtime","vote_count","vote_average",
     "critic_score_parsed","description_sentiment_score",
-    # diversity features added
     "female_cast_count","male_cast_count","female_cast_pct","gender_balance_score",
     "director_gender","female_director",
     "cast_unknown_cnt","cast_female_cnt","cast_male_cnt","cast_nonbinary_cnt"
 ]
 
-# ensure columns exist
 for c in movie_feature_cols:
     if c not in df.columns:
         df[c] = 0.0
@@ -208,11 +207,9 @@ for c in movie_feature_cols:
 df[movie_feature_cols] = df[movie_feature_cols].fillna(0.0)
 scaler = StandardScaler()
 X_movies = scaler.fit_transform(df[movie_feature_cols].values.astype(np.float32))
-y_audience = df["audience_score_parsed"].values  # may contain NaN
+y_audience = df["audience_score_parsed"].values  # contains NaN for unlabeled
 
-# -----------------------
-# 5) Node id maps and hetero graph (memory safe)
-# -----------------------
+# 5) Node id maps and hetero graph construction (memory-safe)
 num_movies = len(df)
 movie_ids = {i: i for i in range(num_movies)}
 
@@ -232,10 +229,11 @@ print("Counts -> movies:", num_movies, "genres:", len(genre_ids), "directors:", 
 
 data = HeteroData()
 data["movie"].x = torch.tensor(X_movies, dtype=torch.float32)
-# store y as 0 for unlabeled; evaluation uses labeled indices
+# store y (0 for unlabeled) and a boolean mask so loss can ignore unlabeled nodes
 data["movie"].y = torch.tensor(np.nan_to_num(y_audience, nan=0.0), dtype=torch.float32)
+data["movie"].y_mask = torch.tensor(~np.isnan(y_audience), dtype=torch.bool)   # True for labeled nodes
 
-# placeholders for categorical nodes (will be replaced by embeddings)
+# placeholders for categorical nodes (embeddings will be used)
 if len(genre_ids)>0: data["genre"].x = torch.zeros(len(genre_ids), CAT_EMB_DIM)
 if len(director_ids)>0: data["director"].x = torch.zeros(len(director_ids), CAT_EMB_DIM)
 if len(company_ids)>0: data["company"].x = torch.zeros(len(company_ids), CAT_EMB_DIM)
@@ -274,13 +272,11 @@ data["cast","acted_in","movie"].edge_index = data["movie","has_cast","cast"].edg
 data["movie","made_in","country"].edge_index = build_edges("countries", country_ids)
 data["country","country_of","movie"].edge_index = data["movie","made_in","country"].edge_index.flip(0)
 
-torch.save(data, "movie_kgcn_fullgraph_diversity_optionA.pt")
-print("Saved graph → movie_kgcn_fullgraph_diversity_optionA.pt")
+torch.save(data, "movie_kgcn_fullgraph_diversity_optionB.pt")
+print("Saved graph → movie_kgcn_fullgraph_diversity_optionB.pt")
 
-# -----------------------
-# 6) NeighborLoader setup (IMPORTANT: input nodes remain on CPU)
-# -----------------------
-train_idx_tensor = torch.tensor(train_idx, dtype=torch.long)   # CPU!
+# 6) NeighborLoader setup (input nodes must be CPU tensors)
+train_idx_tensor = torch.tensor(train_idx, dtype=torch.long)   # KEEP ON CPU!
 val_idx_tensor   = torch.tensor(val_idx, dtype=torch.long)
 test_idx_tensor  = torch.tensor(test_idx, dtype=torch.long)
 
@@ -289,7 +285,7 @@ train_loader = NeighborLoader(
     input_nodes=("movie", train_idx_tensor),
     num_neighbors=NUM_NEIGHBORS,
     batch_size=BATCH_SIZE,
-    shuffle=True
+    shuffle=True,
 )
 
 val_loader = NeighborLoader(
@@ -297,62 +293,61 @@ val_loader = NeighborLoader(
     input_nodes=("movie", val_idx_tensor),
     num_neighbors=NUM_NEIGHBORS,
     batch_size=BATCH_SIZE,
-    shuffle=False
+    shuffle=False,
 )
 
-# -----------------------
-# 7) HeteroKGCN model (batch-safe & device-safe)
-# -----------------------
+# 7) HeteroKGCN model (batch-safe + device-safe)
 movie_feat_dim = data["movie"].x.shape[1]
 print("Movie numeric feature dim:", movie_feat_dim)
 
-class HeteroKGCN(nn.Module):
-    def __init__(self, movie_feat_dim, cat_emb_dim=CAT_EMB_DIM, hidden=HIDDEN):
+class HeteroKGCN_v2(nn.Module):
+    def __init__(self, movie_feat_dim, cat_emb_dim=CAT_EMB_DIM, hidden=HIDDEN, dropout=0.4):
         super().__init__()
+        # embeddings (movie embedding gives node-specific learned vector)
         self.movie_emb = nn.Embedding(num_movies, cat_emb_dim)
         self.genre_emb = nn.Embedding(len(genre_ids), cat_emb_dim) if len(genre_ids)>0 else None
         self.director_emb = nn.Embedding(len(director_ids), cat_emb_dim) if len(director_ids)>0 else None
         self.company_emb = nn.Embedding(len(company_ids), cat_emb_dim) if len(company_ids)>0 else None
-        self.cast_emb = nn.Embedding(len(cast_ids), cat_emb_dim) if len(cast_ids)>0 else None
+        # make cast embeddings smaller to save memory
+        self.cast_emb = nn.Embedding(len(cast_ids), max(8, cat_emb_dim//2)) if len(cast_ids)>0 else None
         self.country_emb = nn.Embedding(len(country_ids), cat_emb_dim) if len(country_ids)>0 else None
 
         conv1 = {}
         conv2 = {}
         def add(src, rel, dst, src_dim, dst_dim):
-            conv1[(src, rel, dst)] = SAGEConv((src_dim, dst_dim), hidden)
-            conv2[(src, rel, dst)] = SAGEConv((hidden, hidden), hidden)
+            conv1[(src,rel,dst)] = SAGEConv((src_dim, dst_dim), hidden)
+            conv2[(src,rel,dst)] = SAGEConv((hidden, hidden), hidden)
 
-        # movie <-> genre
         add('movie','has_genre','genre', movie_feat_dim+cat_emb_dim, cat_emb_dim)
         add('genre','genre_of','movie', cat_emb_dim, movie_feat_dim+cat_emb_dim)
-
         if self.director_emb is not None:
             add('movie','directed_by','director', movie_feat_dim+cat_emb_dim, cat_emb_dim)
             add('director','director_of','movie', cat_emb_dim, movie_feat_dim+cat_emb_dim)
-
         if self.company_emb is not None:
             add('movie','produced_by','company', movie_feat_dim+cat_emb_dim, cat_emb_dim)
             add('company','company_of','movie', cat_emb_dim, movie_feat_dim+cat_emb_dim)
-
         if self.cast_emb is not None:
-            add('movie','has_cast','cast', movie_feat_dim+cat_emb_dim, cat_emb_dim)
-            add('cast','acted_in','movie', cat_emb_dim, movie_feat_dim+cat_emb_dim)
-
+            add('movie','has_cast','cast', movie_feat_dim+cat_emb_dim, self.cast_emb.embedding_dim)
+            add('cast','acted_in','movie', self.cast_emb.embedding_dim, movie_feat_dim+cat_emb_dim)
         if self.country_emb is not None:
             add('movie','made_in','country', movie_feat_dim+cat_emb_dim, cat_emb_dim)
             add('country','country_of','movie', cat_emb_dim, movie_feat_dim+cat_emb_dim)
 
         self.conv1 = HeteroConv(conv1, aggr='sum')
         self.conv2 = HeteroConv(conv2, aggr='sum')
+
+        self.dropout = nn.Dropout(0.4)
+        self.ln = nn.LayerNorm(hidden)
         self.lin = nn.Linear(hidden, 1)
 
     def forward(self, x_dict, edge_index_dict, batch=None):
-        # Move inputs to device
+        # device-safe movement
         dev = next(self.parameters()).device
+        # move only available tensors to device
         x = {k: v.to(dev) for k,v in x_dict.items()}
         ei = {k: v.to(dev) for k,v in edge_index_dict.items()}
 
-        # movie embedding: per-batch or full
+        # movie embedding per-batch or full
         if batch is not None:
             movie_idx = batch["movie"].n_id.to(self.movie_emb.weight.device)
             movie_emb_batch = self.movie_emb(movie_idx)
@@ -360,7 +355,6 @@ class HeteroKGCN(nn.Module):
         else:
             x["movie"] = torch.cat([x["movie"], self.movie_emb.weight.to(x["movie"].device)], dim=1)
 
-        # categorical embeddings (full matrices)
         dev2 = x["movie"].device
         if self.genre_emb is not None: x["genre"] = self.genre_emb.weight.to(dev2)
         if self.director_emb is not None: x["director"] = self.director_emb.weight.to(dev2)
@@ -368,60 +362,106 @@ class HeteroKGCN(nn.Module):
         if self.cast_emb is not None: x["cast"] = self.cast_emb.weight.to(dev2)
         if self.country_emb is not None: x["country"] = self.country_emb.weight.to(dev2)
 
-        # convs
         x = self.conv1(x, ei)
         x = {k: torch.relu(v) for k,v in x.items()}
         x = self.conv2(x, ei)
 
-        return self.lin(x["movie"]).squeeze()
+        out = self.lin(self.dropout(self.ln(x["movie"]))).squeeze()
+        return out
 
-model = HeteroKGCN(movie_feat_dim=movie_feat_dim, cat_emb_dim=CAT_EMB_DIM, hidden=HIDDEN).to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+# instantiate model + optimizer + scheduler + amp scaler
+model = HeteroKGCN_v2(movie_feat_dim=movie_feat_dim, cat_emb_dim=CAT_EMB_DIM, hidden=HIDDEN).to(device)
+optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
+scaler_amp = GradScaler()
 loss_fn = nn.MSELoss()
 
-# -----------------------
-# 8) Training loop
-# -----------------------
+# 8) Training loop (masked loss, AMP, gradclip, early stopping)
+
+best_val = float("inf")
+best_state = None
+no_improve = 0
+
 print("Starting training...")
+t0 = time.time()
 for epoch in range(1, EPOCHS+1):
     model.train()
     total_loss = 0.0
     steps = 0
+
     for batch in train_loader:
         optimizer.zero_grad()
-        out = model(batch.x_dict, batch.edge_index_dict, batch=batch)
-        y_batch = batch["movie"].y.to(device)
-        loss = loss_fn(out, y_batch)
-        loss.backward()
-        optimizer.step()
+        # forward + masked loss
+        with autocast():
+            out = model(batch.x_dict, batch.edge_index_dict, batch=batch)   # shape: [num_movie_nodes_in_batch]
+            y_batch = batch["movie"].y.to(device)
+            mask_batch = batch["movie"].y_mask.to(device)
+            # if no labeled nodes in batch, skip
+            if mask_batch.sum().item() == 0:
+                continue
+            pred = out[mask_batch]
+            true = y_batch[mask_batch]
+            loss = loss_fn(pred, true)
+
+        # backward with AMP
+        scaler_amp.scale(loss).backward()
+        scaler_amp.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP_NORM)
+        scaler_amp.step(optimizer)
+        scaler_amp.update()
+
         total_loss += loss.item()
         steps += 1
-    print(f"Epoch {epoch}/{EPOCHS} | Train Loss: {total_loss/steps:.6f}")
+
+    train_loss = total_loss/steps if steps>0 else float("nan")
 
     # validation
     model.eval()
+    val_losses = []
     with torch.no_grad():
-        val_losses = []
         for vbatch in val_loader:
-            vout = model(vbatch.x_dict, vbatch.edge_index_dict, batch=vbatch)
-            y_val = vbatch["movie"].y.to(device)
-            vloss = loss_fn(vout, y_val)
+            with autocast():
+                vout = model(vbatch.x_dict, vbatch.edge_index_dict, batch=vbatch)
+                y_v = vbatch["movie"].y.to(device)
+                mask_v = vbatch["movie"].y_mask.to(device)
+                if mask_v.sum().item() == 0:
+                    continue
+                vpred = vout[mask_v]
+                vtrue = y_v[mask_v]
+                vloss = loss_fn(vpred, vtrue)
             val_losses.append(vloss.item())
-        if len(val_losses)>0:
-            print(f"  Val Loss: {np.mean(val_losses):.6f}")
-        else:
-            print("  Val set empty (no batches).")
+    mean_val = np.mean(val_losses) if len(val_losses)>0 else float("inf")
+    scheduler.step(mean_val)
 
-# -----------------------
-# 9) Full-graph inference + evaluation on held-out test labeled indices
-# -----------------------
+    print(f"Epoch {epoch}/{EPOCHS} | Train Loss: {train_loss:.6f} | Val Loss: {mean_val:.6f}")
+
+    # checkpoint & early stopping (on validation loss)
+    if mean_val < best_val - 1e-7:
+        best_val = mean_val
+        best_state = {k:v.cpu().clone() for k,v in model.state_dict().items()}
+        no_improve = 0
+        torch.save({"state": best_state}, "best_hetero_kgcn_ckpt.pth")
+    else:
+        no_improve += 1
+        if no_improve >= PATIENCE:
+            print("Early stopping triggered.")
+            break
+
+print("Training done in {:.1f}s".format(time.time()-t0))
+
+# load best weights
+if best_state is not None:
+    model.load_state_dict({k:v.to(device) for k,v in best_state.items()})
+
+# 9) Full-graph inference & evaluation on test labeled indices
 model.eval()
 with torch.no_grad():
-    full_x_dict = data.x_dict
-    full_edge_index_dict = data.edge_index_dict
-    preds_full = model(full_x_dict, full_edge_index_dict, batch=None).cpu().numpy()
+    preds_full = model(data.x_dict, data.edge_index_dict, batch=None).cpu().numpy()
+    # clip predictions to [0,1]
+    preds_full = np.clip(preds_full, 0.0, 1.0)
     trues_full = data["movie"].y.cpu().numpy()
 
+# Evaluate on test split (held-out labeled)
 test_idx_np = np.array(test_idx)
 y_true_test = trues_full[test_idx_np]
 y_pred_test = preds_full[test_idx_np]
@@ -437,68 +477,56 @@ print(f"Test examples: {len(test_idx_np)}")
 print(f"MAE:  {mae:.4f}")
 print(f"RMSE: {rmse:.4f}")
 print(f"R²:   {r2:.4f}")
-print(f"Pearson: {corr}")
+print(f"Pearson: {corr:.4f}")
 
 # Save model & scaler
-torch.save(model.state_dict(), "hetero_kgcn_diversity_optionA.pth")
-import joblib
+torch.save(model.state_dict(), "hetero_kgcn_v2_optionB.pth")
 joblib.dump(scaler, "movie_feature_scaler_diversity.pkl")
-print("Saved model and scaler.")
+pd.DataFrame({"pred_audience_score": preds_full, "true_audience_score": trues_full}).to_csv("kgcn_preds_all_movies.csv", index=True)
+print("Saved model, scaler, and predictions CSV")
 
-# -----------------------
-# 10) Visualizations (labeled movies only)
-# -----------------------
-mask = ~np.isnan(trues_full)
-trues_labeled = trues_full[mask]
-preds_labeled = preds_full[mask]
+# Visualizations
+mask_labeled = ~np.isnan(trues_full)
+trues_labeled = trues_full[mask_labeled]
+preds_labeled = preds_full[mask_labeled]
 print("Labeled count for viz:", len(trues_labeled))
 
-# Scatter
+# Scatter: truth vs pred
 plt.figure(figsize=(6,6))
-plt.scatter(trues_labeled, preds_labeled, alpha=0.4)
-plt.xlabel("True Audience Score")
-plt.ylabel("Predicted Audience Score")
+plt.scatter(trues_labeled, preds_labeled, alpha=0.35)
+plt.xlabel("True Audience Score"); plt.ylabel("Predicted Audience Score")
 plt.title("Predicted vs True Audience Score (Labeled Movies)")
-plt.plot([0,1],[0,1],'--', color='red')
-plt.tight_layout()
-plt.show()
+plt.plot([0,1],[0,1], '--', color='red')
+plt.tight_layout(); plt.show()
 
 # Residual histogram
 errors = preds_labeled - trues_labeled
-plt.figure(figsize=(7,5))
-plt.hist(errors, bins=40)
-plt.xlabel("Prediction Error (pred - true)")
-plt.ylabel("Count")
-plt.title("Residual Distribution (Labeled Movies)")
-plt.tight_layout()
-plt.show()
+plt.figure(figsize=(7,5)); plt.hist(errors, bins=40); plt.xlabel("Prediction Error (pred - true)"); plt.title("Residual Distribution"); plt.tight_layout(); plt.show()
 
 # Density hexbin
 plt.figure(figsize=(7,6))
 plt.hexbin(trues_labeled, preds_labeled, gridsize=40)
-plt.xlabel("True Audience Score")
-plt.ylabel("Predicted Audience Score")
-plt.title("Density: True vs Predicted (Labeled Movies)")
-plt.colorbar(label="Count")
-plt.tight_layout()
-plt.show()
+plt.xlabel("True Audience Score"); plt.ylabel("Predicted Audience Score")
+plt.title("Density: True vs Predicted (Labeled Movies)"); plt.colorbar(label="Count"); plt.tight_layout(); plt.show()
 
-# ROC + PR (binarize at 0.6)
+# ROC + PR (binary threshold 0.6)
 y_true_bin = (trues_labeled >= 0.6).astype(int)
 y_score = preds_labeled
+if len(np.unique(y_true_bin)) > 1:
+    fpr, tpr, _ = roc_curve(y_true_bin, y_score)
+    roc_auc = auc(fpr, tpr)
+    prec, rec, _ = precision_recall_curve(y_true_bin, y_score)
+    pr_auc = auc(rec, prec)
 
-fpr, tpr, _ = roc_curve(y_true_bin, y_score)
-roc_auc = auc(fpr, tpr)
-prec, rec, _ = precision_recall_curve(y_true_bin, y_score)
-pr_auc = auc(rec, prec)  # area under PR curve (rec on x)
+    plt.figure(figsize=(6,6))
+    plt.plot(fpr, tpr, label=f'ROC AUC = {roc_auc:.3f}')
+    plt.plot([0,1],[0,1],'--', color='gray')
+    plt.xlabel("FPR"); plt.ylabel("TPR"); plt.title("ROC Curve (audience >= 0.6)")
+    plt.legend(); plt.tight_layout(); plt.show()
 
-plt.figure(figsize=(6,6))
-plt.plot(fpr, tpr, label=f'ROC AUC = {roc_auc:.3f}')
-plt.plot([0,1],[0,1],'--', color='gray')
-plt.xlabel("FPR"); plt.ylabel("TPR"); plt.title("ROC Curve (audience>=0.6)")
-plt.legend(); plt.tight_layout(); plt.show()
-
-plt.figure(figsize=(6,6))
-plt.plot(rec, prec, label=f'PR AUC = {pr_auc:.3f}')
-plt.xlabel("Recall"); plt.ylabel("Precision"); plt.title("Precision-Recall Curve (audience>=0.6)")
-plt.legend(); plt.tight_layout(); plt.show()
+    plt.figure(figsize=(6,6))
+    plt.plot(rec, prec, label=f'PR AUC = {pr_auc:.3f}')
+    plt.xlabel("Recall"); plt.ylabel("Precision"); plt.title("Precision-Recall Curve (audience >= 0.6)")
+    plt.legend(); plt.tight_layout(); plt.show()
+else:
+    print("Not enough positives/negatives in labeled set to compute ROC/PR.")
