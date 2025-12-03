@@ -1775,9 +1775,7 @@ print("  • diversity_vs_time_decay_importance.png")
 print(f"\nResults saved to: {os.path.join(output_folder, 'feature_importance2.csv')}")
 print("=" * 80)
 
-# =============================================================================
 # 9. SAVE ARTIFACTS FOR STREAMLIT APP
-# =============================================================================
 import joblib
 import json
 
@@ -1789,7 +1787,7 @@ os.makedirs(artifact_dir, exist_ok=True)
 # This is the 'model' variable (random_search.best_estimator_)
 model_path = os.path.join(artifact_dir, "xgboost_base_model.pkl")
 joblib.dump(model, model_path)
-print(f"✅ Saved final XGBoost model to: {model_path}")
+print(f"Saved final XGBoost model to: {model_path}")
 
 # 2. Save the final list of feature columns
 # This list must exactly match the column order used for training X
@@ -1798,13 +1796,4 @@ with open(features_path, 'w') as f:
     # Ensure we save the list of column names derived from the DataFrame (X.columns)
     # in case any columns were dropped during the final X preparation steps (Section 6).
     json.dump(X.columns.tolist(), f)
-print(f"✅ Saved XGBoost feature list (X.columns) to: {features_path}")
-
-# --- You may optionally save the full prediction set here for comparison ---
-# y_pred_full = model.predict(X)
-# full_preds_df = df_model[["tmdb_id", "title"]].copy()
-# full_preds_df["pred_audience_score"] = y_pred_full
-# full_preds_df.to_csv(os.path.join(artifact_dir, "xgboost_preds_all_movies.csv"), index=False)
-# print("✅ Saved full XGBoost prediction CSV (Optional)")
-
-# =============================================================================
+print(f"Saved XGBoost feature list (X.columns) to: {features_path}")

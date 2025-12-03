@@ -7,24 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/16GQ6mUgkIeGLLOtLJeuVuJA4KI_jKBI5
 """
 
-!pip uninstall -y torch torchvision torchaudio torch-geometric torch_scatter torch_sparse torch_cluster torch_spline_conv pyg_lib
-!pip uninstall -y torch-scatter torch-sparse torch-cluster torch-spline-conv pyg-lib
-!pip list | grep -E "torch|pyg"
-
-!pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0 \
-  --index-url https://download.pytorch.org/whl/cu124
-
-!pip install pyg-lib torch-scatter torch-sparse torch-cluster torch-spline-conv \
-  -f https://data.pyg.org/whl/torch-2.6.0+cu124.html
-
-!pip install torch-geometric
-
-!pip install pymongo
-
-# improved_hetero_kgcn_full_pipeline.py
-# Full pipeline (Option B improvements): data load -> graph -> improved HeteroKGCN -> train -> eval -> viz
-# Requirements: torch, torch_geometric, sklearn, pymongo, matplotlib, tqdm
-
 import random, time, ast, joblib
 import numpy as np
 import pandas as pd
