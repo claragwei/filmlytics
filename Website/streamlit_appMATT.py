@@ -217,8 +217,49 @@ def predict_ensemble(movie_data, artifacts):
 
 
 # =============================================================================
-# DATA QUERY FUNCTIONS (Unchanged)
+# DATA QUERY FUNCTIONS
 # =============================================================================
+
+@st.cache_data
+def get_all_movie_titles(_db):
+    """
+    Get a list of UNIQUE movie titles, sorted by vote count (popularity), 
+    for the dropdown using aggregation for deduplication.
+    """
+    try:
+        pipeline = [
+            # 1. Match: Filter for relevant documents
+            {"$match": {
+                "title": {"$ne": None}, 
+                "tmdb_id": {"$ne": None},
+                "tmdb_metrics.vote_count": {"$gte": 1}
+            }},
+            
+            # 2. Deduplicate: Group by tmdb_id, keeping the maximum vote count
+            #    and the corresponding title (since titles should be consistent 
+            #    per tmdb_id).
+            {"$group": {
+                "_id": "$tmdb_id",
+                "title": {"$first": "$title"},  # Keep the title
+                "vote_count": {"$max": "$tmdb_metrics.vote_count"} # Get the highest vote count among duplicates
+            }},
+            
+            # 3. Sort: Sort the unique results by vote count (highest first)
+            {"$sort": {"vote_count": -1}},
+            
+            # 4. Project and Extract Titles
+            {"$project": {"_id": 0, "title": 1}}
+        ]
+        
+        # Execute the aggregation
+        unique_titles = list(_db.movies.aggregate(pipeline))
+        
+        # Extract and return the titles
+        return [doc['title'] for doc in unique_titles]
+        
+    except Exception as e:
+        st.error(f"Error fetching unique movie titles: {e}")
+        return []
 
 def search_movie(db, title):
     # Search for a movie by title
@@ -227,7 +268,7 @@ def search_movie(db, title):
         movie = db.movies.find_one({"title": {"$regex": title, "$options": "i"}})
     return movie
 
-def get_top_movies(db, limit=50, min_votes=100):
+def get_top_movies(db, limit=50, min_votes=1000):
     # Get top-rated movies
     query = {
         "tmdb_metrics.vote_count": {"$gte": min_votes},
@@ -235,22 +276,54 @@ def get_top_movies(db, limit=50, min_votes=100):
     }
     return list(db.movies.find(query).sort("tmdb_metrics.vote_average", -1).limit(limit))
 
-def get_similar_movies(db, tmdb_id, limit=10):
-    # Get similar movies based on shared genres
+def get_similar_movies(db, tmdb_id, limit=10, min_votes=1000):
+    """
+    Get unique similar movies based on shared genres (exact match), 
+    filtered by vote count, and sorted by average.
+    """
+    # 1. Find the reference movie
     movie = db.movies.find_one({"tmdb_id": tmdb_id})
     if not movie:
         return []
     
-    # Use movie's genres list directly
     genres = movie['production'].get('genres', [])
     if not genres:
         return []
         
-    query = {
-        "production.genres": {"$in": genres},
-        "tmdb_id": {"$ne": tmdb_id}
-    }
-    return list(db.movies.find(query).sort("tmdb_metrics.vote_average", -1).limit(limit))
+    genre_count = len(genres)
+        
+    # 2. Build the Aggregation Pipeline
+    pipeline = [
+        # A. Filter: Match the exact genre set, minimum votes, and ensure it's not the original movie
+        {"$match": {
+            "production.genres": {
+                "$all": genres,
+                "$size": genre_count
+            },
+            "tmdb_id": {"$ne": tmdb_id},
+            "tmdb_metrics.vote_count": {"$gte": min_votes}, 
+            "tmdb_metrics.vote_average": {"$ne": None} 
+        }},
+        
+        # B. Deduplicate: Group by the unique identifier (tmdb_id)
+        #    We keep the entire document of the first instance found using "$$ROOT".
+        {"$group": {
+            "_id": "$tmdb_id",
+            "unique_movie": {"$first": "$$ROOT"}
+        }},
+        
+        # C. Project: Restore the document structure
+        {"$replaceRoot": {"newRoot": "$unique_movie"}},
+        
+        # D. Sort: Sort the unique results by vote average (highest first)
+        {"$sort": {"tmdb_metrics.vote_average": -1}},
+        
+        # E. Limit: Apply the final limit
+        {"$limit": limit}
+    ]
+    
+    # Execute the aggregation pipeline and return the list of documents
+    return list(db.movies.aggregate(pipeline))
 
 def get_database_stats(db):
     # Get database statistics
@@ -271,10 +344,36 @@ def get_all_genres(db):
     genres = db.movies.distinct("production.genres")
     return sorted([g for g in genres if g])
 
-def get_movies_by_genre(db, genre, limit=20):
-    # Get movies by genre
-    query = {"production.genres": genre}
-    return list(db.movies.find(query).sort("tmdb_metrics.vote_average", -1).limit(limit))
+def get_movies_by_genre(db, genre, limit=20, min_votes=1000):
+    pipeline = [
+        # 1. Filter: Match the genre and minimum vote count/rating
+        {"$match": {
+            "production.genres": genre,
+            "tmdb_metrics.vote_count": {"$gte": min_votes}, 
+            "tmdb_metrics.vote_average": {"$ne": None}
+        }},
+        
+        # 2. Deduplicate: Group by the unique identifier (tmdb_id). 
+        #    We use '$first' to keep the data from the first document found 
+        #    for this movie, including the entire original document.
+        {"$group": {
+            "_id": "$tmdb_id",
+            "unique_movie": {"$first": "$$ROOT"} # $$ROOT keeps the whole document
+        }},
+        
+        # 3. Project: Restore the document structure to what 'find' returns 
+        #    and access the fields needed for sorting.
+        {"$replaceRoot": {"newRoot": "$unique_movie"}},
+        
+        # 4. Sort: Sort the unique results by vote average (highest first)
+        {"$sort": {"tmdb_metrics.vote_average": -1}},
+        
+        # 5. Limit: Apply the final limit
+        {"$limit": limit}
+    ]
+    
+    # Execute the aggregation pipeline and return the list of documents
+    return list(db.movies.aggregate(pipeline))
 
 
 # =============================================================================
@@ -425,11 +524,22 @@ def main():
     elif page == "Movie Search":
         st.header("Search Movies & Predict")
         
-        # Search bar
-        search_query = st.text_input("Enter movie title:", placeholder="e.g., Inception, The Matrix")
+        # 1. Fetch all titles for the dropdown
+        all_titles = get_all_movie_titles(db)
+
+        # 2. Dropdown search menu (using st.selectbox for simplicity, which works as an autocomplete)
+        selected_title = st.selectbox(
+            "Select or Type a Movie Title:", 
+            options=["-- Select a Movie --"] + all_titles,
+            index=0
+        )
+        
+        # Check if the user selected a movie (and not the placeholder)
+        search_query = selected_title if selected_title != "-- Select a Movie --" else None
         
         if search_query:
-            movie = search_movie(db, search_query)
+            # The search logic remains the same, but now uses the selected title
+            movie = search_movie(db, search_query) 
             
             if movie:
                 st.success(f"✅ Found: {movie['title']}")
@@ -576,21 +686,18 @@ def main():
         
         cov_col1, cov_col2, cov_col3 = st.columns(3)
         with cov_col1:
-            # FIX: Use 0 if the artifact is None
             gnn_preds_len = len(artifacts['gnn_preds']) if artifacts.get('gnn_preds') is not None else 0
             st.metric("GNN Predictions Found", f"{gnn_preds_len:,}")
         with cov_col2:
-            # FIX: Use 0 if the artifact is None
-            kgcn_preds_len = len(artifacts['kgcn_preds']) if artifacts.get('kgcn_preds') is not None else 0
-            st.metric("KGCN Predictions Found", f"{kgcn_preds_len:,}")
-        with cov_col3:
-    # --- ENSURE THIS CODE IS PRESENT ---
             xg_features = artifacts.get('xg_features')
             if xg_features is not None:
                 st.metric("XGBoost Feature Count", len(xg_features))
             else:
                 # Prevents crash if the file is missing
                 st.metric("XGBoost Feature Count", "N/A (Missing file)")
+        with cov_col3:
+            kgcn_preds_len = len(artifacts['kgcn_preds']) if artifacts.get('kgcn_preds') is not None else 0
+            st.metric("KGCN Predictions Found", f"{kgcn_preds_len:,}")
         
         st.markdown("""
         <small>GNN/KGCN predictions are pre-calculated lookups; XGBoost prediction is a placeholder/fallback in this web application for quick demo.</small>
@@ -642,18 +749,42 @@ def main():
             st.subheader("Collection Info")
             
             # Get date range
-            oldest = db.movies.find_one(
-                {"release_info.tmdb_release_date": {"$ne": None}},
-                sort=[("release_info.tmdb_release_date", 1)]
-            )
-            newest = db.movies.find_one(
-                {"release_info.tmdb_release_date": {"$ne": None}},
-                sort=[("release_info.tmdb_release_date", -1)]
-            )
+        
+        pipeline = [
+            # 1. Match: Filter out empty, null, or obviously non-date values
+            {"$match": {
+                "release_info.tmdb_release_date": {
+                    "$ne": None, 
+                    # Regex: Ensures the value starts with four digits (YYYY)
+                    "$regex": "^[0-9]{4}",
+                    # Filter out short strings that are clearly not dates (e.g., "TLA")
+                    "$type": "string" 
+                }
+            }},
+            # 2. Group: Find the minimum and maximum *valid* release date strings
+            {"$group": {
+                "_id": None,
+                "oldest_date": {"$min": "$release_info.tmdb_release_date"},
+                "newest_date": {"$max": "$release_info.tmdb_release_date"}
+            }}
+        ]
+        
+        results = list(db.movies.aggregate(pipeline))
+        
+        if results:
+            dates = results[0]
             
-            if oldest and newest:
-                st.write(f"**Oldest Movie:** {oldest['release_info']['tmdb_release_date']}")
-                st.write(f"**Newest Movie:** {newest['release_info']['tmdb_release_date']}")
+            # Find the full movie documents corresponding to the min/max dates
+            oldest_movie = db.movies.find_one({"release_info.tmdb_release_date": dates["oldest_date"]})
+            newest_movie = db.movies.find_one({"release_info.tmdb_release_date": dates["newest_date"]})
+            
+            if oldest_movie and newest_movie:
+                st.write(f"**Oldest Movie:** {oldest_movie['title']} ({dates['oldest_date']})")
+                st.write(f"**Newest Movie:** {newest_movie['title']} ({dates['newest_date']})")
+            else:
+                st.info("Could not retrieve movies for the calculated date range.")
+        else:
+            st.info("No valid release dates found in the database.")
             
             # Top genres
             st.write("**Top 5 Genres:**")
