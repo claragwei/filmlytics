@@ -1,0 +1,9 @@
+streamlit
+pandas
+numpy
+plotly
+pymongo
+certifi
+joblib
+xgboost
+scikit-learn
