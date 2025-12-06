@@ -14,8 +14,7 @@ import pickle # For loading stacking model
 # CONFIGURATION
 
 # MongoDB Connection
-# MONGODB_URI = "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
-MONGODB_URI = st.secrets["MONGODB_URI"]
+MONGODB_URI = "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
 
 # Page Configuration
 st.set_page_config(
