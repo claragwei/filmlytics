@@ -5,5 +5,6 @@ plotly
 pymongo
 certifi
 joblib
+pyvis
 xgboost
 scikit-learn
