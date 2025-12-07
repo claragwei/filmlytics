@@ -440,87 +440,102 @@ def home_page(db):
         ">
             <h1 style="margin-bottom: 0.5rem;">Filmlytics</h1>
             <h3 style="margin-top: 0; font-weight: 400;">
-                Predicting Rotten Tomatoes Audience Scores with Graph-Based Models and Ensembles
+                Predicting Rotten Tomatoes Audience Scores Using Graph-Based Modeling
             </h3>
-            <p style="max-width: 800px; line-height: 1.5;">
-                We combine Graph Neural Networks, Knowledge-Graph Convolutional Networks, and XGBoost
-                to forecast audience scores for over 66,000 films, while incorporating diversity indicators
-                and trailer engagement signals.
-            </p>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    # METRICS
-    stats = get_database_stats(db)
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("Total Movies", f"{stats['total']:,}")
-    with c2:
-        st.metric("Labeled Successful", f"{stats['successful']:,}")
-    with c3:
-        rate = (stats['successful'] / stats['total'] * 100) if stats['total'] > 0 else 0
-        st.metric("Success Rate", f"{rate:.1f}%")
-    with c4:
-        st.metric("With RT Audience Data", f"{stats['with_rotten_tomatoes']:,}")
+    # ABSTRACT
+    st.subheader("Abstract")
+    st.write(
+        """
+        This project builds a graphical model predicting the audience score of upcoming films and 
+        visualizes relationships among previously released films. Using data from TMDB, Rotten Tomatoes, 
+        and YouTube API, we constructed a dataset of 66,000+ films spanning 2010–2025, containing key film 
+        attributes such as cast, genres, release information, viewer engagement metrics, and trailer 
+        sentiment. Additionally, we incorporated diversity indicators like female cast percentages to 
+        uncover patterns between gender representation and film success. 
+        
+        After cleaning and merging these data sources, we applied graphical modeling techniques 
+        (Graph Neural Networks and XGBoost baselines) to capture dependencies among film features and 
+        trained a prediction model to estimate audience scores. Our results show meaningful relationships 
+        between attributes such as genre clusters and the influence of cast popularity, and demonstrate 
+        moderate predictive accuracy for new film scores. The Streamlit interface enables users to 
+        interactively explore these relationships while recommending films based on likes and dislikes.
+        """
+    )
 
     st.markdown("---")
 
-    # TWO-COLUMN: PROJECT SUMMARY + MODELING SUMMARY
-    left, right = st.columns([1.3, 1])
+    # INTRO & MOTIVATION
+    st.subheader("Introduction & Motivation")
+    st.write(
+        """
+        The film industry faces mounting pressure to predict audience reception while also addressing 
+        debates about representation and diversity. Audience scores directly influence marketing strategies, 
+        streaming decisions, and long-term commercial success. Being able to predict these scores before 
+        release could offer studios and creators valuable insights into audience expectations and potential 
+        film performance. 
 
-    with left:
-        st.subheader("Project Overview")
-        st.write(
-            """
-            The film industry faces mounting pressure to predict audience reception while also
-            addressing debates about representation and diversity. Audience scores influence
-            marketing strategies, streaming decisions, and long-term commercial success.
-
-            Filmlytics builds a unified dataset from TMDB, Rotten Tomatoes, and YouTube trailers,
-            enriches it with gender representation features, and applies graph-based and
-            tree-based models to:
-            - Quantify how metadata, engagement, and diversity relate to audience response  
-            - Predict Rotten Tomatoes audience scores before release  
-            - Support interactive exploration via this dashboard  
-            """
-        )
-
-    with right:
-        st.subheader("Modeling Stack")
-        st.write(
-            """
-            - **GNN** over a 66k-movie similarity graph  
-            - **KGCN** over a heterogeneous movie knowledge graph  
-            - **XGBoost** on 150+ engineered features  
-            - **Stacking Ensemble** that learns how to combine all three  
-            """
-        )
+        Systematic analysis of films beyond the basics of budget, runtime, etc. has been limited by data 
+        fragmentation as film metadata, engagement metrics, and diversity information exist across disparate 
+        platforms. Additionally, gender and demographic information are not systematically tracked in standard 
+        film databases, and simple regression and black-box models don’t offer in-depth predictions for 
+        analyzing complex relationships. 
+        
+        By integrating multiple data sources, enriching them with gender representation features, and 
+        building a structured graphical model, we can explore how different film attributes interact and 
+        contribute to audience responses.
+        """
+    )
 
     st.markdown("---")
 
-    # TOP MOVIES SECTION
-    st.subheader("Top Rated Movies (TMDB)")
+    # OBJECTIVES
+    st.subheader("Objectives")
+    st.write(
+        """
+        - Construct a comprehensive dataset integrating multiple APIs for films containing features 
+          relevant to audience score prediction and webscraping critic and audience scores.  
+        - Build a complex knowledge-based graphical model showing dependencies among film attributes 
+          and audience scores.  
+        - Use the graphical model to predict scores for upcoming films based on gathered metrics of 
+          previously scored films.  
+        - Interpret the structure of the learned model to understand relationships among released films 
+          and provide actionable insights.  
+        - Create an interactive dashboard that allows users to explore predictions and film relationships.  
+        """
+    )
 
-    top_movies = get_top_movies(db, limit=10)
-    if top_movies:
-        for i, movie in enumerate(top_movies[:5], 1):
-            with st.expander(f"{i}. {movie['title']} — {movie['tmdb_metrics']['vote_average']}/10"):
-                c1, c2 = st.columns([1, 2])
-                with c1:
-                    poster = movie.get('content', {}).get('poster_url')
-                    if poster:
-                        st.image(poster, width=150)
-                with c2:
-                    st.write(f"**Genres:** {', '.join(movie['production'].get('genres', []))}")
-                    st.write(f"**Runtime:** {movie['production'].get('runtime', 'N/A')} minutes")
-                    st.write(f"**Votes:** {movie['tmdb_metrics']['vote_count']:,}")
-                    overview = movie.get('content', {}).get('overview')
-                    if overview:
-                        st.write(f"**Overview:** {overview[:300]}...")
-    else:
-        st.info("No movies found in the database.")
+    st.markdown("---")
+
+    # NAVIGATION BUTTONS (clean + modern)
+    st.subheader("Explore the Filmlytics Dashboard")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("🎬 Movie Search", use_container_width=True):
+            st.session_state["page"] = "Movie Search"
+    with col2:
+        if st.button("📊 Analytics Dashboard", use_container_width=True):
+            st.session_state["page"] = "Analytics Dashboard"
+    with col3:
+        if st.button("🧠 Modeling", use_container_width=True):
+            st.session_state["page"] = "Modeling"
+
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        if st.button("🔍 Compare Movies", use_container_width=True):
+            st.session_state["page"] = "Compare Movies"
+    with col5:
+        if st.button("🕸 Visual Graph Explorer", use_container_width=True):
+            st.session_state["page"] = "Visual Graph Explorer"
+    with col6:
+        if st.button("👥 Acknowledgements", use_container_width=True):
+            st.session_state["page"] = "Acknowledgements"
+
 
 
 def movie_search_page(db, artifacts):
@@ -996,18 +1011,6 @@ def acknowledgements_page():
         """
     )
 
-    st.subheader("Technologies")
-    st.write(
-        """
-        - Streamlit  
-        - MongoDB  
-        - PyTorch Geometric  
-        - XGBoost  
-        - scikit-learn (stacking meta-learner)  
-        - Hugging Face Transformers (sentiment)  
-        """
-    )
-
     st.subheader("Data Sources")
     st.write(
         """
@@ -1020,8 +1023,8 @@ def acknowledgements_page():
     st.subheader("Acknowledgements")
     st.write(
         """
-        We thank the STA 160 instructional team for guidance, as well as tooling
-        support used for organization, prototyping, and documentation throughout the project.
+        We thank the STA 160 instructional team for guidance and support throughout the project, 
+        as well as collaborative tools used for development, organization, and research.
         """
     )
 
