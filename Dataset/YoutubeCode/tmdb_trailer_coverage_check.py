@@ -12,7 +12,7 @@ import pandas as pd
 from time import sleep
 
 # ==== CONFIG ====
-TMDB_API_KEY = "f3876225152794090ccbaf4b57a58132"
+TMDB_API_KEY = "API Key"
 INPUT_CSV = "tmdb_filtered_2.csv"                 # Input movie list file
 OUTPUT_CSV = "movie_trailer_check.csv"
 
