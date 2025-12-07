@@ -39,7 +39,7 @@ DEFAULT_WEIGHTS = {
 
 # Prediction file mappings
 PREDICTION_FILES = {
-    'gnn': ('gnn_preds_all_movies.csv', 'pred_audience_score'),
+    'gnn': ('gnn_preds_all_movies.csv', 'gnn_pred_audience_score'),
     'kgcn': ('kgcn_preds_all_movies.csv', 'pred_audience_score'),
     'xgb': ('xgb_preds_all_movies.csv', 'predicted_audience_score'),
 }
