@@ -427,136 +427,162 @@ def create_success_over_time(db):
 # =============================================================================
 
 def home_page(db):
+
+    # ===============================
+    # HERO HEADER (Large, Professional)
+    # ===============================
+
     st.markdown(
-        "<div class='main-title'>Predicting Movie Audience Scores Using Graph-Based Modeling</div>",
+        """
+        <style>
+        .hero-title {
+            font-size: 3rem;
+            font-weight: 800;
+            text-align: center;
+            margin-top: 0.2em;
+            margin-bottom: 0.1em;
+            color: #111827;
+        }
+        .hero-subtitle {
+            font-size: 1.4rem;
+            font-weight: 400;
+            text-align: center;
+            color: #4b5563;
+            margin-bottom: 1.5em;
+        }
+        .section-header {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-top: 1.4em;
+            color: #1f2937;
+        }
+        .content-text {
+            font-size: 1.05rem;
+            line-height: 1.55;
+            color: #374151;
+        }
+        </style>
+        """,
         unsafe_allow_html=True
     )
 
     st.markdown(
-        "<div class='sub-title'>Filmytics — Predicting Audience Scores</div>",
+        "<div class='hero-title'>Predicting Movie Audience Scores Using Graph-Based Modeling</div>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        "<div class='hero-subtitle'>Filmytics — A Graph-Driven, Multi-Model Framework for Movie Audience Prediction</div>",
         unsafe_allow_html=True
     )
 
     st.markdown("---")
 
-    # -----------------------------
-    # INTRO TEXT (YOUR NEW VERSION)
-    # -----------------------------
+    # ===============================
+    # INTRO SECTION
+    # ===============================
 
-    st.header("What this project is and why it matters")
-    st.write("""
-Filmytics is a data-driven project that predicts audience scores for movies before release.  
-Studios, distributors, and creators care about audience reception because it affects marketing,
-streaming placement, and long-term success.
+    st.markdown("<div class='section-header'>What this project is and why it matters</div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class='content-text'>
+        Filmytics predicts audience scores for movies <b>before release</b>.  
+        Studios rely on early audience insights to guide marketing strategy, streaming placement,
+        and financial forecasting. For fans and researchers, these predictions uncover what types
+        of films resonate and how factors such as <b>representation</b> influence audience reception.
+        <br><br>
+        Our system combines large public datasets, builds rich feature representations,
+        and uses advanced graph-based modeling to understand how films relate to each other.
+        The result is a robust ensemble prediction framework for new and upcoming movies.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-For movie fans and researchers, understanding what drives audience opinion reveals which kinds
-of films resonate and whether representation (e.g., gender balance in the cast) matters.
+    # ===============================
+    # APPROACH SECTION
+    # ===============================
 
-Overall, we built a system that gathers public film data, learns patterns from past movies,
-and estimates how audiences will rate new films.
-""")
+    st.markdown("<div class='section-header'>Our Approach</div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class='content-text'>
+        We collect data from three major public sources:
+        <ul>
+            <li><b>TMDB</b> — metadata such as cast, genres, runtime, budget, popularity</li>
+            <li><b>Rotten Tomatoes</b> — critic & audience scores and review excerpts</li>
+            <li><b>YouTube</b> — trailer views, likes, comments, and recency metrics</li>
+        </ul>
 
-    st.header("Our Approach")
-    st.write("""
-We first collected data from three public sources:
-- **TMDB** — movie metadata (runtime, cast, genres, etc.)
-- **Rotten Tomatoes** — audience & critic scores, review snippets
-- **YouTube** — trailer engagement (views, likes, comments)
+        After cleaning and joining these sources, we build a unified dataset of
+        <b>~66,000 films (2010–2025)</b> and engineer over <b>150 features</b>
+        covering metadata, engagement metrics, sentiment, and representation indicators.
+        <br><br>
+        We then train three complementary models:
+        <ul>
+            <li><b>GNN</b> — captures similarity across films via shared attributes</li>
+            <li><b>KGCN</b> — learns semantic relationships in the film knowledge graph</li>
+            <li><b>XGBoost</b> — strong feature-based baseline using engineered predictors</li>
+        </ul>
 
-Our final dataset covers **~66,000 films spanning 2010–2025**.
+        Finally, a <b>stacking meta-learner</b> integrates these components into a single
+        high-accuracy audience score predictor.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-We:
-- cleaned and merged these sources into a structured MongoDB database  
-- removed duplicates, normalized numeric fields (log-transformed budgets)  
-- computed new metrics such as trailer sentiment and female cast share  
-- engineered **150+ features** from metadata, engagement, and representation  
-""")
+    st.info(
+        "Workflow: TMDB + RottenTomatoes + YouTube → Clean/Merge → Feature Engineering → {GNN, KGCN, XGBoost} → Stacking Meta-Learner → Audience Score Prediction"
+    )
 
-    st.write("""
-We then trained multiple models capturing different aspects of film behavior:
+    # ===============================
+    # RESULTS SECTION
+    # ===============================
 
-**Graph Neural Network (GNN)**
-- Uses film similarity (genres, directors, countries, diversity alignment)  
-- Useful for leveraging relationships between similar films  
+    st.markdown("<div class='section-header'>Main Findings and Results</div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class='content-text'>
+        <ul>
+            <li><b>XGBoost RMSE:</b> 0.110</li>
+            <li><b>KGCN RMSE:</b> 0.171</li>
+            <li><b>GNN RMSE:</b> 0.195</li>
+            <li><b>Stacking Ensemble RMSE:</b> 0.1085 (best overall)</li>
+            <li><b>80.2%</b> of predictions fall within ±10 percentage points</li>
+        </ul>
+        Combining graph-based and tabular models yields the strongest practical performance.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-**Knowledge Graph Convolutional Network (KGCN)**
-- Treats films, people, genres, and companies as nodes  
-- Learns relation-specific embeddings  
+    # ===============================
+    # NEXT STEPS
+    # ===============================
 
-**XGBoost**
-- Strong tabular baseline leveraging 150+ engineered features  
-""")
+    st.markdown("<div class='section-header'>What this means & next steps</div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class='content-text'>
+        This system can help:
+        <ul>
+            <li>Studios estimate audience reception earlier</li>
+            <li>Identify where representation correlates with performance</li>
+            <li>Improve targeting for marketing spend</li>
+        </ul>
 
-    st.write("""
-Finally, we **stacked all model outputs** using a Gradient Boosting meta-learner.  
-This meta-learner dynamically learns **when to trust each base model**.
-""")
+        Future enhancements may incorporate:
+        <ul>
+            <li>Social trend signals (TikTok, X/Twitter)</li>
+            <li>More refined cast/crew diversity metrics</li>
+            <li>Temporal modeling of trailer engagement</li>
+        </ul>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    st.info("""
-**Workflow:**  
-TMDB + RottenTomatoes + YouTube  
-→ cleaned & merged dataset  
-→ feature engineering  
-→ {GNN, KGCN, XGBoost}  
-→ stacking meta-learner  
-→ audience score prediction  
-""")
-
-    st.header("Key Modeling Steps")
-
-    st.subheader("Step 1 — Data & Preprocessing")
-    st.write("""
-- Join across sources using TMDB ID  
-- Remove duplicate trailers  
-- Compute critic & trailer sentiment  
-- Extract diversity indicators (e.g., % female cast)  
-- Store in a structured MongoDB schema  
-""")
-
-    st.subheader("Step 2 — Feature Engineering")
-    st.write("""
-Features fall into groups:
-- Film metadata (runtime, budget, genres)  
-- Social cues (views, likes, recency)  
-- Critic-based signals  
-- Representation features  
-""")
-
-    st.subheader("Step 3 — Base Models")
-    st.write("""
-**GNN:** movie similarity graph  
-**KGCN:** entity knowledge graph  
-**XGBoost:** tabular feature learner  
-""")
-
-    st.subheader("Step 4 — Stacking Ensemble")
-    st.write("""
-A Gradient Boosting meta-model learns how to combine the 3 base predictors
-for optimal accuracy.
-""")
-
-    st.header("Main Findings and Results")
-    st.write("""
-- XGBoost RMSE ≈ **0.110**
-- KGCN RMSE ≈ **0.171**
-- GNN RMSE ≈ **0.195**
-- Stacking Meta-Learner RMSE ≈ **0.1085**
-- **80.2%** of predictions fall within ±10% of actual audience score
-
-Combining graph-based and feature-based models yields the strongest performance.
-""")
-
-    st.header("What this means & next steps")
-    st.write("""
-This system can help:
-- studios estimate audience reception early  
-- identify films where representation correlates with outcomes  
-- prioritize marketing spend  
-
-Future improvements may include:
-- social media trend signals  
-- more granular cast/crew diversity measures  
-""")
 
 
 
