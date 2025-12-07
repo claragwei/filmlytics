@@ -720,7 +720,6 @@ This system can help studios:
 
 
 
-
 def movie_search_page(db, artifacts):
     st.title("Movie Search & Audience Score Prediction")
 
