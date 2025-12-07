@@ -243,6 +243,89 @@ def predict_ensemble(movie_data, artifacts):
 # =============================================================================
 # DATA QUERY FUNCTIONS
 # =============================================================================
+@st.cache_data
+def get_runtime_data(_db):
+    """Get runtime data for histogram."""
+    results = list(_db.movies.find(
+        {"production.runtime": {"$ne": None, "$gt": 0}},
+        {"_id": 0, "runtime": "$production.runtime"}
+    ).limit(10000))
+    return pd.DataFrame(results)
+
+def create_runtime_distribution_chart(db):
+    """Create a histogram of movie runtimes."""
+    df = get_runtime_data(db)
+    if df.empty:
+        return None
+    
+    fig = px.histogram(
+        df, 
+        x='runtime', 
+        nbins=50,
+        title='Distribution of Movie Runtimes (Minutes)',
+        labels={'runtime': 'Runtime (Minutes)', 'count': 'Number of Movies'},
+        color_discrete_sequence=['#ff7f0e'] # Orange color
+    )
+    fig.update_layout(bargap=0.1)
+    return fig
+
+@st.cache_data
+def get_success_classification_data(_db):
+    """
+    Get Vote Count, Vote Average, and Success Label data for classification scatter plot.
+    """
+    pipeline = [
+        {"$match": {
+            "tmdb_metrics.vote_count": {"$gt": 1000},  # Filter for high-vote movies only
+            "tmdb_metrics.vote_average": {"$ne": None},
+            "tmdb_metrics.is_successful": {"$ne": None}
+        }},
+        {"$project": {
+            "_id": 0,
+            "title": 1,
+            "vote_count": "$tmdb_metrics.vote_count",
+            "vote_average": "$tmdb_metrics.vote_average",
+            "is_successful": "$tmdb_metrics.is_successful"
+        }},
+        {"$limit": 5000}
+    ]
+    results = list(_db.movies.aggregate(pipeline))
+    df = pd.DataFrame(results)
+    
+    # Convert boolean success flag to a descriptive string for better plotting
+    if not df.empty:
+        df['Success_Label'] = df['is_successful'].apply(lambda x: 'SUCCESSFUL' if x else 'NOT SUCCESSFUL')
+        
+    return df
+
+def create_success_classification_chart(db):
+    """
+    Create a scatter plot comparing popularity (Vote Count) and quality (Vote Average),
+    colored by the binary Success Label.
+    """
+    df = get_success_classification_data(db)
+    if df.empty:
+        return None
+    
+    # Use log scale for Vote Count as it varies widely
+    fig = px.scatter(
+        df, 
+        x='vote_count', 
+        y='vote_average', 
+        color='Success_Label', 
+        hover_data=['title'],
+        log_x=True, 
+        title='Success Classification: Popularity vs. Quality',
+        labels={
+            'vote_count': 'TMDB Vote Count (Log Scale)',
+            'vote_average': 'TMDB Vote Average (Quality)'
+        },
+        color_discrete_map={'SUCCESSFUL': 'green', 'NOT SUCCESSFUL': 'red'}
+    )
+    
+    # Add labels and hover settings
+    fig.update_layout(hovermode="closest")
+    return fig
 
 @st.cache_data
 def get_all_movie_titles(_db):
@@ -779,13 +862,13 @@ def main():
 
         st.caption("Stacking achieves 31.4% better RMSE and predicts 80% of movies within 10% of actual score.")
     
-    # DATABASE STATS PAGE (Unchanged)
+    # DATABASE STATS PAGE
     elif page == "Database Stats":
         st.header("Database Statistics")
         
         stats = get_database_stats(db)
         
-        # Overview metrics
+        # Overview metrics (kept as-is)
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -799,89 +882,91 @@ def main():
         
         st.markdown("---")
         
-        # Detailed breakdowns
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Data Completeness")
+        # New Tab Structure
+        tab1, tab2, tab3 = st.tabs(["Completeness & Range", "Runtime Analysis", "Rating Comparison"]) 
+
+        with tab1: # Existing Content (Data Completeness/Collection Info)
+            st.subheader("Data Completeness & Collection Info")
             
-            completeness_data = {
-                'Category': ['Rotten Tomatoes', 'Trailers', 'Success Labels'],
-                'Percentage': [
-                    (stats['with_rotten_tomatoes'] / stats['total']) * 100,
-                    (stats['with_trailers'] / stats['total']) * 100,
-                    (stats['successful'] / stats['total']) * 100
-                ]
-            }
-            df_complete = pd.DataFrame(completeness_data)
+            col1, col2 = st.columns(2)
             
-            fig = px.bar(df_complete, x='Category', y='Percentage',
-                        title='Data Completeness (%)',
-                        color='Percentage',
-                        color_continuous_scale='greens')
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("Collection Info")
-            
-            # Get date range
-        
-        pipeline = [
-            # 1. Match: Filter out empty, null, or obviously non-date values
-            {"$match": {
-                "release_info.tmdb_release_date": {
-                    "$ne": None, 
-                    # Regex: Ensures the value starts with four digits (YYYY)
-                    "$regex": "^[0-9]{4}",
-                    # Filter out short strings that are clearly not dates (e.g., "TLA")
-                    "$type": "string" 
+            with col1:
+                # Data Completeness Bar Chart
+                completeness_data = {
+                    'Category': ['Rotten Tomatoes', 'Trailers', 'Success Labels'],
+                    'Percentage': [
+                        (stats['with_rotten_tomatoes'] / stats['total']) * 100,
+                        (stats['with_trailers'] / stats['total']) * 100,
+                        (stats['successful'] / stats['total']) * 100
+                    ]
                 }
-            }},
-            # 2. Group: Find the minimum and maximum *valid* release date strings
-            {"$group": {
-                "_id": None,
-                "oldest_date": {"$min": "$release_info.tmdb_release_date"},
-                "newest_date": {"$max": "$release_info.tmdb_release_date"}
-            }}
-        ]
-        
-        results = list(db.movies.aggregate(pipeline))
-        
-        if results:
-            dates = results[0]
-            
-            # Find the full movie documents corresponding to the min/max dates
-            oldest_movie = db.movies.find_one({"release_info.tmdb_release_date": dates["oldest_date"]})
-            newest_movie = db.movies.find_one({"release_info.tmdb_release_date": dates["newest_date"]})
-            
-            if oldest_movie and newest_movie:
-                st.write(f"**Oldest Movie:** {oldest_movie['title']} ({dates['oldest_date']})")
-                st.write(f"**Newest Movie:** {newest_movie['title']} ({dates['newest_date']})")
+                df_complete = pd.DataFrame(completeness_data)
+                
+                fig = px.bar(df_complete, x='Category', y='Percentage',
+                            title='Data Completeness (%)',
+                            color='Percentage',
+                            color_continuous_scale='greens')
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                # Collection Info (Date Range/Top Genres)
+                st.subheader("Collection Details")
+                
+                # --- Date Range Logic (Your existing code) ---
+                pipeline = [
+                    {"$match": {
+                        "release_info.tmdb_release_date": {
+                            "$ne": None, 
+                            "$regex": "^[0-9]{4}",
+                            "$type": "string" 
+                        }
+                    }},
+                    {"$group": {
+                        "_id": None,
+                        "oldest_date": {"$min": "$release_info.tmdb_release_date"},
+                        "newest_date": {"$max": "$release_info.tmdb_release_date"}
+                    }}
+                ]
+                results = list(db.movies.aggregate(pipeline))
+                if results:
+                    dates = results[0]
+                    oldest_movie = db.movies.find_one({"release_info.tmdb_release_date": dates["oldest_date"]})
+                    newest_movie = db.movies.find_one({"release_info.tmdb_release_date": dates["newest_date"]})
+                    if oldest_movie and newest_movie:
+                        st.write(f"**Oldest Movie:** {oldest_movie['title']} ({dates['oldest_date']})")
+                        st.write(f"**Newest Movie:** {newest_movie['title']} ({dates['newest_date']})")
+                    else:
+                        st.info("Could not retrieve movies for the calculated date range.")
+                else:
+                    st.info("No valid release dates found in the database.")
+                    
+                # --- Top Genres Logic (Your existing code) ---
+                st.write("**Top 5 Genres:**")
+                pipeline = [
+                    {"$unwind": "$production.genres"},
+                    {"$group": {"_id": "$production.genres", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 5}
+                ]
+                for doc in db.movies.aggregate(pipeline):
+                    st.write(f"- {doc['_id']}: {doc['count']:,}")
+
+        with tab2: # New Tab: Runtime Analysis
+            st.subheader("⏱️ Runtime Distribution")
+            fig = create_runtime_distribution_chart(db)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("Could not retrieve movies for the calculated date range.")
-        else:
-            st.info("No valid release dates found in the database.")
+                st.info("Insufficient data for Runtime analysis.")
             
-            # Top genres
-            st.write("**Top 5 Genres:**")
-            pipeline = [
-                {"$unwind": "$production.genres"},
-                {"$group": {"_id": "$production.genres", "count": {"$sum": 1}}},
-                {"$sort": {"count": -1}},
-                {"$limit": 5}
-            ]
-            
-            for doc in db.movies.aggregate(pipeline):
-                st.write(f"- {doc['_id']}: {doc['count']:,}")
-    
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    <div style='text-align: center'>
-        <p>🎬 Cinemaniacs | STA 160 Project | Team 15</p>
-        <p>Ensemble Prediction Platform</p>
-    </div>
-    """, unsafe_allow_html=True)
+
+        with tab3: # New Tab: Success Boundary
+            st.subheader("🎯 Success Boundary Analysis")
+            fig = create_success_classification_chart(db)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Insufficient data for Success Boundary analysis (need valid votes and success labels).")
 
 if __name__ == "__main__":
     main()
