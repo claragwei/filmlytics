@@ -6,8 +6,8 @@ import sys
 import csv
 
 # ===== CONFIG =====
-TMDB_API_KEY = "f3876225152794090ccbaf4b57a58132"
-YOUTUBE_API_KEY = "AIzaSyDMRHnZBG562Pv1ydN-1cuX3w5u6fLcqbo"
+TMDB_API_KEY = "API Key"
+YOUTUBE_API_KEY = "Api Key"
 
 INPUT_CSV = os.path.expanduser("~/Desktop/STA 160/tmdb_ids.csv")
 OUTPUT_CSV = os.path.expanduser("~/Desktop/STA 160/trailer_dataset.csv")
