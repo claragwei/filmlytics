@@ -426,7 +426,7 @@ def create_success_over_time(db):
 # PAGE FUNCTIONS
 # =============================================================================
 
-def page_home(db):
+def home_page(db):
     st.markdown(
         "<div class='main-title'>Predicting Movie Audience Scores Using Graph-Based Modeling</div>",
         unsafe_allow_html=True
@@ -557,6 +557,7 @@ Future improvements may include:
 - social media trend signals  
 - more granular cast/crew diversity measures  
 """)
+
 
 
 
