@@ -3,20 +3,21 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import networkx as nx
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 import certifi
 import os
 import joblib  # For loading XGBoost model and scaler
-import json    # For loading feature list / ensemble meta
+import json    # For loading feature list / metadata
 import pickle  # For loading stacking model
+import networkx as nx  # For graph visualization
+
 
 # =============================================================================
-# CONFIG & GLOBAL STYLE
+# CONFIGURATION
 # =============================================================================
 
-# MongoDB Connection – uses secrets on cloud, falls back to hard-coded URI locally
+# MongoDB Connection
 MONGODB_URI = st.secrets.get(
     "MONGODB_URI",
     "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
@@ -24,47 +25,12 @@ MONGODB_URI = st.secrets.get(
 
 # Page Configuration
 st.set_page_config(
-    page_title="Predicting Movie Audience Scores Using Graph-Based Modeling",
+    page_title="Filmlytics - Movie Audience Score Prediction",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Simple custom CSS for a more modern feel
-st.markdown(
-    """
-    <style>
-    .main-title {
-        font-size: 2.2rem;
-        font-weight: 700;
-        margin-bottom: 0.2rem;
-    }
-    .sub-title {
-        font-size: 1.1rem;
-        color: #666666;
-        margin-bottom: 1.2rem;
-    }
-    .hero-buttons-row button[kind="secondary"] {
-        border-radius: 999px !important;
-        border: 1px solid #cccccc !important;
-    }
-    .card {
-        padding: 1rem 1.2rem;
-        border-radius: 0.75rem;
-        background-color: #11182711;
-        border: 1px solid #e5e7eb20;
-        margin-bottom: 1rem;
-    }
-    .section-title {
-        font-size: 1.3rem;
-        font-weight: 600;
-        margin-top: 0.5rem;
-        margin-bottom: 0.2rem;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 # =============================================================================
 # DATABASE CONNECTION
@@ -87,6 +53,7 @@ def get_database_connection():
         st.error(f"Database connection failed: {e}")
         return None
 
+
 # =============================================================================
 # ARTIFACT LOADING AND ENSEMBLE PREDICTION SETUP
 # =============================================================================
@@ -94,33 +61,32 @@ def get_database_connection():
 @st.cache_resource
 def load_ensemble_artifacts():
     """
-    Load all models, scalers, and prediction dataframes including stacking model.
-    Uses precomputed predictions from:
-      - gnn_preds_all_movies.csv
-      - kgcn_preds_all_movies.csv
-      - xgb_preds_all_movies.csv
-    And an optional stacking_meta_model.pkl (+ ensemble_weights.json).
+    Load all models, scalers, prediction dataframes, and stacking model/metadata.
+    This mirrors your teammate's working ensemble setup.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     artifact_dir = os.path.join(script_dir, 'model_artifacts')
 
     artifacts = {}
+
     required_files = {
-        # XGBoost base model + feature list (not used live, but kept for completeness)
+        # XGBoost
         'xg_model': 'xgboost_base_model.pkl',
         'xg_features': 'xg_feature_columns.json',
-        # Shared scaler (if needed later)
+        # GNN/KGCN shared
         'scaler': 'movie_feature_scaler_diversity.pkl',
-        # Precomputed predictions
+        # GNN Predictions (Lookup)
         'gnn_preds': 'gnn_preds_all_movies.csv',
+        # KGCN Predictions (Lookup)
         'kgcn_preds': 'kgcn_preds_all_movies.csv',
+        # XGBoost Predictions (Lookup)
         'xgb_preds': 'xgb_preds_all_movies.csv',
     }
 
     for key, filename in required_files.items():
         path = os.path.join(artifact_dir, filename)
         if not os.path.exists(path):
-            st.warning(f"Missing required file: {filename}. Some predictions will be unavailable.")
+            st.warning(f"Missing required file: {filename}. Prediction will be incomplete.")
             artifacts[key] = None
             continue
 
@@ -138,14 +104,12 @@ def load_ensemble_artifacts():
                     artifacts[key] = df.set_index('tmdb_id')['pred_audience_score']
                 elif 'predicted_audience_score' in df.columns:
                     artifacts[key] = df.set_index('tmdb_id')['predicted_audience_score']
-                elif 'ensemble_pred' in df.columns:
-                    artifacts[key] = df.set_index('tmdb_id')['ensemble_pred']
                 else:
                     artifacts[key] = df.set_index('tmdb_id').iloc[:, 0]
         except Exception as e:
             return None, f"Error loading {filename}: {e}"
 
-    # Stacking meta-model (rebuilt in the same sklearn version as runtime)
+    # Stacking meta-model
     stacking_path = os.path.join(artifact_dir, 'stacking_meta_model.pkl')
     if os.path.exists(stacking_path):
         try:
@@ -168,13 +132,31 @@ def load_ensemble_artifacts():
     else:
         artifacts['ensemble_meta'] = {}
 
-    # Fallback weights for weighted average if stacking unavailable
+    # Fallback ensemble weights
     artifacts['ensemble_weights'] = {'gnn': 0.33, 'kgcn': 0.34, 'xg': 0.33}
 
     return artifacts, None
 
+
+def parse_pct_string(s):
+    if isinstance(s, str) and s.endswith("%"):
+        try:
+            return float(s[:-1].strip()) / 100.0
+        except Exception:
+            return np.nan
+    return np.nan
+
+
+def generate_xgboost_features(movie_data, artifacts):
+    """
+    Placeholder for a feature generator matching the XGBoost training pipeline.
+    Currently unused; predictions come from precomputed lookup tables.
+    """
+    return None
+
+
 def safe_get_prediction(preds, tmdb_id):
-    """Safely get a prediction value from a pandas Series (or None)."""
+    """Safely get a prediction value from a pandas Series."""
     if preds is None:
         return np.nan
     val = preds.get(tmdb_id, np.nan)
@@ -183,6 +165,7 @@ def safe_get_prediction(preds, tmdb_id):
     if pd.isna(val):
         return np.nan
     return float(val)
+
 
 def predict_ensemble(movie_data, artifacts):
     """
@@ -208,7 +191,6 @@ def predict_ensemble(movie_data, artifacts):
     stacking_model = artifacts.get('stacking_model')
     has_all_preds = not (np.isnan(gnn_pred) or np.isnan(kgcn_pred) or np.isnan(xgb_pred))
 
-    # Preferred: meta-learner
     if stacking_model is not None and has_all_preds:
         X = np.array([[gnn_pred, kgcn_pred, xgb_pred]])
         ensemble_pred = float(np.clip(stacking_model.predict(X)[0], 0, 1))
@@ -224,7 +206,7 @@ def predict_ensemble(movie_data, artifacts):
             return float(tmdb_avg) / 10.0, predictions
         return np.nan, predictions
 
-    valid_keys = list(valid_preds.keys())
+    valid_keys = valid_preds.keys()
     total_valid_weight = sum(weights.get(k, 0) for k in valid_keys)
 
     if total_valid_weight == 0:
@@ -237,6 +219,7 @@ def predict_ensemble(movie_data, artifacts):
 
     ensemble_pred = np.clip(ensemble_pred, 0.0, 1.0)
     return ensemble_pred, predictions
+
 
 # =============================================================================
 # DATA QUERY FUNCTIONS
@@ -266,11 +249,13 @@ def get_all_movie_titles(_db):
         st.error(f"Error fetching unique movie titles: {e}")
         return []
 
+
 def search_movie(db, title):
     movie = db.movies.find_one({"title": {"$regex": f"^{title}$", "$options": "i"}})
     if not movie:
         movie = db.movies.find_one({"title": {"$regex": title, "$options": "i"}})
     return movie
+
 
 def get_top_movies(db, limit=50, min_votes=1000):
     query = {
@@ -279,14 +264,16 @@ def get_top_movies(db, limit=50, min_votes=1000):
     }
     return list(db.movies.find(query).sort("tmdb_metrics.vote_average", -1).limit(limit))
 
+
 def get_similar_movies(db, tmdb_id, limit=10, min_votes=1000):
-    """Simple similarity via exact genre set match + vote filter."""
     movie = db.movies.find_one({"tmdb_id": tmdb_id})
     if not movie:
         return []
+
     genres = movie['production'].get('genres', [])
     if not genres:
         return []
+
     genre_count = len(genres)
 
     pipeline = [
@@ -309,12 +296,13 @@ def get_similar_movies(db, tmdb_id, limit=10, min_votes=1000):
     ]
     return list(db.movies.aggregate(pipeline))
 
+
 def get_database_stats(db):
     total = db.movies.count_documents({})
     successful = db.movies.count_documents({"tmdb_metrics.is_successful": True})
     with_rt = db.movies.count_documents({"rotten_tomatoes.has_rt_url": True})
     with_trailer = db.movies.count_documents({"trailer.trailer_url_youtube": {"$ne": None}})
-    
+
     return {
         "total": total,
         "successful": successful,
@@ -322,9 +310,11 @@ def get_database_stats(db):
         "with_trailers": with_trailer
     }
 
+
 def get_all_genres(db):
     genres = db.movies.distinct("production.genres")
     return sorted([g for g in genres if g])
+
 
 def get_movies_by_genre(db, genre, limit=20, min_votes=1000):
     pipeline = [
@@ -343,8 +333,9 @@ def get_movies_by_genre(db, genre, limit=20, min_votes=1000):
     ]
     return list(db.movies.aggregate(pipeline))
 
+
 # =============================================================================
-# VISUALIZATION HELPERS
+# VISUALIZATION FUNCTIONS
 # =============================================================================
 
 def create_genre_distribution_chart(db):
@@ -370,23 +361,26 @@ def create_genre_distribution_chart(db):
     fig.update_layout(xaxis_tickangle=-45)
     return fig
 
+
 def create_rating_distribution(db):
     movies = list(db.movies.find(
         {"tmdb_metrics.vote_average": {"$ne": None}},
         {"tmdb_metrics.vote_average": 1}
     ).limit(5000))
+
     ratings = [m['tmdb_metrics']['vote_average'] for m in movies]
     if not ratings:
         return None
+
     fig = px.histogram(
         ratings,
         nbins=50,
-        title='Distribution of TMDB Ratings',
-        labels={'value': 'Rating', 'count': 'Number of Movies'},
-        color_discrete_sequence=['#2563eb']
+        title='Distribution of Movie Ratings',
+        labels={'value': 'Rating', 'count': 'Number of Movies'}
     )
     fig.update_layout(showlegend=False)
     return fig
+
 
 def create_success_over_time(db):
     pipeline = [
@@ -406,12 +400,15 @@ def create_success_over_time(db):
         }},
         {"$sort": {"year": 1}}
     ]
+
     results = list(db.movies.aggregate(pipeline))
     df = pd.DataFrame(results)
+
     if not df.empty and len(df) > 10:
-        df = df[df['year'].astype(int) >= 2010]
+        df = df[df['year'].astype(int) >= 2000]
         if df.empty:
             return None
+
         fig = px.line(
             df,
             x='year',
@@ -424,316 +421,164 @@ def create_success_over_time(db):
         return fig
     return None
 
-def create_similarity_graph_figure(db, center_movie, max_neighbors=15):
-    """
-    Build a simple similarity graph around `center_movie`:
-    - Center node = selected movie
-    - Neighbors = top movies in one of its genres
-    Rendered as a Plotly scatter+edges.
-    """
-    if center_movie is None:
-        return None
-
-    genres = center_movie.get("production", {}).get("genres", [])
-    if not genres:
-        return None
-
-    # Use first genre for a small local neighborhood
-    genre = genres[0]
-    neighbors = get_movies_by_genre(db, genre, limit=max_neighbors + 1)
-    if not neighbors:
-        return None
-
-    G = nx.Graph()
-    center_id = center_movie["tmdb_id"]
-    center_title = center_movie["title"]
-
-    G.add_node(center_id, title=center_title, is_center=True)
-
-    for m in neighbors:
-        mid = m["tmdb_id"]
-        if mid == center_id:
-            continue
-        G.add_node(mid, title=m["title"], is_center=False)
-        G.add_edge(center_id, mid)
-
-    # Layout
-    pos = nx.spring_layout(G, seed=42, k=0.6)
-
-    # Build edge traces
-    edge_x = []
-    edge_y = []
-    for u, v in G.edges():
-        x0, y0 = pos[u]
-        x1, y1 = pos[v]
-        edge_x += [x0, x1, None]
-        edge_y += [y0, y1, None]
-
-    edge_trace = go.Scatter(
-        x=edge_x,
-        y=edge_y,
-        line=dict(width=1, color="#9ca3af"),
-        hoverinfo="none",
-        mode="lines"
-    )
-
-    # Node trace
-    node_x = []
-    node_y = []
-    node_text = []
-    node_color = []
-
-    for node_id, data in G.nodes(data=True):
-        x, y = pos[node_id]
-        node_x.append(x)
-        node_y.append(y)
-        node_text.append(data.get("title", str(node_id)))
-        node_color.append("#fbbf24" if data.get("is_center") else "#60a5fa")
-
-    node_trace = go.Scatter(
-        x=node_x,
-        y=node_y,
-        mode="markers+text",
-        text=node_text,
-        textposition="top center",
-        hoverinfo="text",
-        marker=dict(
-            size=[16 if c == "#fbbf24" else 10 for c in node_color],
-            color=node_color,
-            line=dict(width=1, color="#111827")
-        )
-    )
-
-    fig = go.Figure(data=[edge_trace, node_trace])
-    fig.update_layout(
-        title=f"Similarity Graph Around: {center_title}",
-        showlegend=False,
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        margin=dict(l=10, r=10, t=40, b=10),
-        height=500,
-    )
-    return fig
 
 # =============================================================================
 # PAGE FUNCTIONS
 # =============================================================================
 
-def home_page(db):
-    # Title + subtitle
-    st.markdown("<div class='main-title'>Predicting Movie Audience Scores Using Graph-Based Modeling</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-title'>Filmytics — Combining graph learning, metadata, and ensemble modeling for film audience prediction.</div>", unsafe_allow_html=True)
+def page_home(db):
+    st.markdown(
+        "<div class='main-title'>Predicting Movie Audience Scores Using Graph-Based Modeling</div>",
+        unsafe_allow_html=True
+    )
 
-    # Hero navigation buttons
-    st.markdown("<div class='hero-buttons-row'>", unsafe_allow_html=True)
-    btn_cols = st.columns(4)
-    buttons = [
-        ("Home", "Home"),
-        ("Movie Search", "Movie Search"),
-        ("Compare Movies", "Compare Movies"),
-        ("Analytics Dashboard", "Analytics Dashboard"),
-        ("Modeling", "Modeling"),
-        ("Visual Graph Explorer", "Visual Graph Explorer"),
-        ("Acknowledgements", "Acknowledgements"),
-    ]
+    st.markdown(
+        "<div class='sub-title'>Filmytics — Predicting Audience Scores</div>",
+        unsafe_allow_html=True
+    )
 
-    for (label, target), col in zip(buttons[:4], btn_cols):
-        with col:
-            if st.button(label, use_container_width=True):
-                st.session_state["page"] = target
-                st.rerun()
-
-    btn_cols2 = st.columns(3)
-    for (label, target), col in zip(buttons[4:], btn_cols2):
-        with col:
-            if st.button(label, use_container_width=True):
-                st.session_state["page"] = target
-                st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("---")
 
-    # ===============================
-    # WHAT THIS PROJECT IS & WHY IT MATTERS
-    # ===============================
-    st.markdown("## Filmytics — Predicting Audience Scores")
+    # -----------------------------
+    # INTRO TEXT (YOUR NEW VERSION)
+    # -----------------------------
 
-    st.write(
-        """
-**Filmytics** is a data-driven project that predicts audience scores for movies *before* release.  
-Studios, distributors, and creators depend on audience reception to shape marketing, streaming deals, and franchise decisions.
+    st.header("What this project is and why it matters")
+    st.write("""
+Filmytics is a data-driven project that predicts audience scores for movies before release.  
+Studios, distributors, and creators care about audience reception because it affects marketing,
+streaming placement, and long-term success.
 
-For movie fans and researchers, understanding what drives audience opinion reveals which films resonate most and whether representation (e.g., gender balance in cast) affects outcomes.
+For movie fans and researchers, understanding what drives audience opinion reveals which kinds
+of films resonate and whether representation (e.g., gender balance in the cast) matters.
 
-Overall, Filmytics gathers public film data, learns patterns from past movies, and estimates how audiences will react to new releases.
-        """
-    )
+Overall, we built a system that gathers public film data, learns patterns from past movies,
+and estimates how audiences will rate new films.
+""")
 
-    # ===============================
-    # OUR APPROACH
-    # ===============================
-    st.markdown("## Our Approach")
+    st.header("Our Approach")
+    st.write("""
+We first collected data from three public sources:
+- **TMDB** — movie metadata (runtime, cast, genres, etc.)
+- **Rotten Tomatoes** — audience & critic scores, review snippets
+- **YouTube** — trailer engagement (views, likes, comments)
 
-    st.write(
-        """
-1. **Data collection from three major sources**  
-   - **TMDB**: metadata (runtime, cast, genres, budget, release date)  
-   - **Rotten Tomatoes**: critic & audience scores, review texts  
-   - **YouTube API**: trailer views, likes, engagement metrics  
+Our final dataset covers **~66,000 films spanning 2010–2025**.
 
-   → Final dataset covers **≈66,000 films (2010–2025)**.
+We:
+- cleaned and merged these sources into a structured MongoDB database  
+- removed duplicates, normalized numeric fields (log-transformed budgets)  
+- computed new metrics such as trailer sentiment and female cast share  
+- engineered **150+ features** from metadata, engagement, and representation  
+""")
 
-2. **Data cleaning & merging** into structured MongoDB documents  
-   - Remove duplicates  
-   - Normalize numeric fields (log budgets, scaled metrics)  
-   - Compute new metrics: trailer sentiment, female cast share  
+    st.write("""
+We then trained multiple models capturing different aspects of film behavior:
 
-3. **Feature Engineering**  
-   - ~150 features: metadata, engagement signals, critic cues, representation features  
-   - Normalized + encoded for model performance  
+**Graph Neural Network (GNN)**
+- Uses film similarity (genres, directors, countries, diversity alignment)  
+- Useful for leveraging relationships between similar films  
 
-4. **Train multiple complementary models**  
-   - **GNN** → similarity relationships between films  
-   - **KGCN** → entity-level graph of films, people, genres  
-   - **XGBoost** → rich tabular baseline  
+**Knowledge Graph Convolutional Network (KGCN)**
+- Treats films, people, genres, and companies as nodes  
+- Learns relation-specific embeddings  
 
-5. **Stacking Ensemble**  
-   - Gradient Boosting meta-learner  
-   - Learns when to trust each model  
-"""
-    )
+**XGBoost**
+- Strong tabular baseline leveraging 150+ engineered features  
+""")
 
-    st.markdown("### Workflow Diagram (Placeholder)")
-    st.info("Insert workflow diagram here:\nTMDB + RT + YouTube → Clean/Merge → Feature Engineering → {GNN, KGCN, XGBoost} → Stacking Meta-Learner → Audience Score Prediction")
+    st.write("""
+Finally, we **stacked all model outputs** using a Gradient Boosting meta-learner.  
+This meta-learner dynamically learns **when to trust each base model**.
+""")
 
-    # ===============================
-    # KEY MODELING STEPS
-    # ===============================
-    st.markdown("## Key Modeling Steps")
+    st.info("""
+**Workflow:**  
+TMDB + RottenTomatoes + YouTube  
+→ cleaned & merged dataset  
+→ feature engineering  
+→ {GNN, KGCN, XGBoost}  
+→ stacking meta-learner  
+→ audience score prediction  
+""")
 
-    with st.expander("Step 1 — Data & Preprocessing"):
-        st.write(
-            """
-- Join using TMDB IDs, resolve duplicates  
-- Clean trailers & compute sentiment  
-- Extract representation features (female cast %, billing alignment)  
-- Store cleaned dataset in MongoDB  
-            """
-        )
+    st.header("Key Modeling Steps")
 
-    with st.expander("Step 2 — Feature Engineering"):
-        st.write(
-            """
-Feature groups include:  
+    st.subheader("Step 1 — Data & Preprocessing")
+    st.write("""
+- Join across sources using TMDB ID  
+- Remove duplicate trailers  
+- Compute critic & trailer sentiment  
+- Extract diversity indicators (e.g., % female cast)  
+- Store in a structured MongoDB schema  
+""")
+
+    st.subheader("Step 2 — Feature Engineering")
+    st.write("""
+Features fall into groups:
 - Film metadata (runtime, budget, genres)  
 - Social cues (views, likes, recency)  
-- Critic-derived features  
-- Diversity & representation indicators  
-            """
-        )
+- Critic-based signals  
+- Representation features  
+""")
 
-    with st.expander("Step 3 — Base Models"):
-        st.write(
-            """
-**GNN:** Movie similarity graph using genres, directors, countries, representation alignment  
-**KGCN:** Entity graph including cast, crew, companies  
-**XGBoost:** 150+ engineered tabular features  
-            """
-        )
+    st.subheader("Step 3 — Base Models")
+    st.write("""
+**GNN:** movie similarity graph  
+**KGCN:** entity knowledge graph  
+**XGBoost:** tabular feature learner  
+""")
 
-    with st.expander("Step 4 — Stacking Ensemble"):
-        st.write(
-            """
-We combine predictions using a **Gradient Boosting meta-learner**, improving accuracy significantly  
-beyond simple averaging.  
-            """
-        )
+    st.subheader("Step 4 — Stacking Ensemble")
+    st.write("""
+A Gradient Boosting meta-model learns how to combine the 3 base predictors
+for optimal accuracy.
+""")
 
-    # ===============================
-    # MAIN FINDINGS & RESULTS
-    # ===============================
-    st.markdown("## Main Findings and Results")
+    st.header("Main Findings and Results")
+    st.write("""
+- XGBoost RMSE ≈ **0.110**
+- KGCN RMSE ≈ **0.171**
+- GNN RMSE ≈ **0.195**
+- Stacking Meta-Learner RMSE ≈ **0.1085**
+- **80.2%** of predictions fall within ±10% of actual audience score
 
-    st.write(
-        """
-- XGBoost performed best among single models → **RMSE ≈ 0.110**  
-- KGCN second-best → **RMSE ≈ 0.171**  
-- GNN third → **RMSE ≈ 0.195**  
-- Stacking ensemble improved performance to **RMSE ≈ 0.1085**, a large improvement over a simple weighted average (0.1452).  
-- **80.2%** of predictions fall within ±10 percentage points of the true audience score.
-        """
-    )
+Combining graph-based and feature-based models yields the strongest performance.
+""")
 
-    st.markdown("### Results Table (Placeholder)")
-    st.info("Insert table of key metrics here — RMSE, MAE, coverage, % within ±10%, etc.")
+    st.header("What this means & next steps")
+    st.write("""
+This system can help:
+- studios estimate audience reception early  
+- identify films where representation correlates with outcomes  
+- prioritize marketing spend  
 
-    # ===============================
-    # WHAT THIS MEANS & NEXT STEPS
-    # ===============================
-    st.markdown("## What This Means & Next Steps")
+Future improvements may include:
+- social media trend signals  
+- more granular cast/crew diversity measures  
+""")
 
-    st.write(
-        """
-This system can help studios:  
-- Estimate audience reception early  
-- Identify where representation correlates with performance  
-- Prioritize marketing spend for films likely to underperform  
 
-**Future Work**  
-- Include social media trends (Twitter / TikTok)  
-- Add fine-grained cast/crew diversity measures  
-- Expand to multilingual markets  
-        """
-    )
-
-    st.markdown("---")
-
-    # ===============================
-    # DATABASE STATISTICS (KEPT SAME)
-    # ===============================
-    stats = get_database_stats(db)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Total Movies", f"{stats['total']:,}")
-    with c2:
-        st.metric("With Audience Scores", f"{stats['with_rotten_tomatoes']:,}")
-    with c3:
-        success_rate = (stats['successful'] / stats['total'] * 100) if stats['total'] > 0 else 0
-        st.metric("Success-Labeled %", f"{success_rate:.1f}%")
-
-    st.subheader("Top Rated Movies")
-    top_movies = get_top_movies(db, limit=10)
-    for i, movie in enumerate(top_movies[:5], 1):
-        with st.expander(f"{i}. {movie['title']} – TMDB {movie['tmdb_metrics']['vote_average']}/10"):
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                poster = movie.get('content', {}).get('poster_url')
-                if poster:
-                    st.image(poster, width=150)
-            with c2:
-                st.write(f"**Genres:** {', '.join(movie['production'].get('genres', []))}")
-                st.write(f"**Runtime:** {movie['production'].get('runtime', 'N/A')} minutes")
-                st.write(f"**Votes:** {movie['tmdb_metrics']['vote_count']:,}")
-                overview = movie.get('content', {}).get('overview')
-                if overview:
-                    st.write(f"{overview[:260]}...")  # trim for display
 
 def movie_search_page(db, artifacts):
-    st.title("Movie Search & Audience Score Prediction")
+    st.title("Movie Search and Prediction")
+    st.markdown("Search for a film, view its metadata, and see the ensemble audience score prediction.")
 
     all_titles = get_all_movie_titles(db)
+
     selected_title = st.selectbox(
         "Select or type a movie title:",
         options=["-- Select a Movie --"] + all_titles,
         index=0
     )
+
     search_query = selected_title if selected_title != "-- Select a Movie --" else None
 
-    movie = None
     if search_query:
         movie = search_movie(db, search_query)
         if movie:
             st.success(f"Found: {movie['title']}")
+
             ensemble_score, breakdown = predict_ensemble(movie, artifacts)
 
             st.markdown("---")
@@ -741,27 +586,29 @@ def movie_search_page(db, artifacts):
 
             if not np.isnan(ensemble_score):
                 st.success(f"Predicted Audience Score: {ensemble_score * 100:.1f}%")
-                b_col1, b_col2, b_col3 = st.columns(3)
-                with b_col1:
+
+                st.markdown("#### Model Breakdown")
+                b1, b2, b3 = st.columns(3)
+                with b1:
                     score = breakdown['gnn']
-                    st.metric("GNN", f"{score * 100:.1f}%" if not np.isnan(score) else "N/A")
-                with b_col2:
+                    st.metric("GNN Prediction", f"{score * 100:.1f}%" if not np.isnan(score) else "N/A")
+                with b2:
                     score = breakdown['kgcn']
-                    st.metric("KGCN", f"{score * 100:.1f}%" if not np.isnan(score) else "N/A")
-                with b_col3:
+                    st.metric("KGCN Prediction", f"{score * 100:.1f}%" if not np.isnan(score) else "N/A")
+                with b3:
                     score = breakdown['xg']
-                    st.metric("XGBoost", f"{score * 100:.1f}%" if not np.isnan(score) else "N/A")
+                    st.metric("XGBoost Prediction", f"{score * 100:.1f}%" if not np.isnan(score) else "N/A")
             else:
-                st.warning("Cannot generate ensemble prediction (missing base-model predictions for this movie).")
+                st.warning("Cannot generate ensemble prediction (missing GNN/KGCN/XGB data for this movie).")
 
             st.markdown("---")
 
-            col1, col2 = st.columns([1, 2])
-            with col1:
+            c1, c2 = st.columns([1, 2])
+            with c1:
                 poster = movie.get('content', {}).get('poster_url')
                 if poster:
                     st.image(poster, width=250)
-            with col2:
+            with c2:
                 st.subheader(movie['title'])
                 st.write(f"**TMDB ID:** {movie['tmdb_id']}")
                 st.write(f"**Genres:** {', '.join(movie['production'].get('genres', []))}")
@@ -769,10 +616,10 @@ def movie_search_page(db, artifacts):
                 st.write(f"**Budget:** ${movie['production'].get('budget', 0):,.0f}")
                 st.write(f"**Release Date:** {movie['release_info'].get('tmdb_release_date', 'N/A')}")
 
-                st.markdown("**Ratings**")
+                st.markdown("### Ratings")
                 r1, r2, r3 = st.columns(3)
                 with r1:
-                    st.metric("TMDB", f"{movie['tmdb_metrics'].get('vote_average', 'N/A')}/10")
+                    st.metric("TMDB Rating", f"{movie['tmdb_metrics'].get('vote_average', 'N/A')}/10")
                 with r2:
                     rt_crit = movie.get('rotten_tomatoes', {}).get('critic_score')
                     st.metric("RT Critics", rt_crit if rt_crit else "N/A")
@@ -788,23 +635,13 @@ def movie_search_page(db, artifacts):
             st.markdown("### Similar Movies")
             similar = get_similar_movies(db, movie['tmdb_id'], limit=5)
             if similar:
-                cols = st.columns(len(similar))
+                cols = st.columns(5)
                 for idx, sim_movie in enumerate(similar):
                     with cols[idx]:
                         st.write(f"**{sim_movie['title']}**")
-                        st.write(f"TMDB: {sim_movie['tmdb_metrics']['vote_average']}/10")
+                        st.write(f"{sim_movie['tmdb_metrics']['vote_average']}/10")
             else:
-                st.write("No similar movies found.")
-
-            # Inline Visual Graph Explorer for this movie
-            st.markdown("---")
-            st.subheader("Visual Graph Explorer (Local Neighborhood)")
-            fig = create_similarity_graph_figure(db, movie, max_neighbors=15)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Not enough neighborhood information to build a similarity graph for this film.")
-
+                st.write("No similar movies found")
         else:
             st.error(f"No movie found matching '{search_query}'")
 
@@ -816,23 +653,31 @@ def movie_search_page(db, artifacts):
         if selected_genre:
             genre_movies = get_movies_by_genre(db, selected_genre, limit=10)
             st.write(f"Showing top {len(genre_movies)} {selected_genre} movies:")
-            for m in genre_movies:
-                st.write(f"**{m['title']}** – TMDB {m['tmdb_metrics']['vote_average']}/10")
+            for movie in genre_movies:
+                st.write(f"**{movie['title']}** — {movie['tmdb_metrics']['vote_average']}/10")
+    else:
+        st.info("No genres available in the database.")
+
 
 def compare_movies_page(db, artifacts):
     st.title("Compare Movies")
+    st.markdown("Compare basic features and ensemble predictions for two films.")
 
     titles = get_all_movie_titles(db)
-    col1, col2 = st.columns(2)
-    movie1_title = col1.selectbox("Select first movie:", ["-- Select --"] + titles)
-    movie2_title = col2.selectbox("Select second movie:", ["-- Select --"] + titles)
+    if not titles:
+        st.info("No titles available to compare.")
+        return
 
-    if movie1_title != "-- Select --" and movie2_title != "-- Select --":
+    c1, c2 = st.columns(2)
+    movie1_title = c1.selectbox("Select first movie:", titles, key="compare_movie_1")
+    movie2_title = c2.selectbox("Select second movie:", titles, key="compare_movie_2")
+
+    if movie1_title and movie2_title:
         m1 = search_movie(db, movie1_title)
         m2 = search_movie(db, movie2_title)
 
         if m1 is None or m2 is None:
-            st.error("One or both selected movies could not be found.")
+            st.error("One or both selected movies could not be found in the database.")
             return
 
         st.subheader("Basic Feature Comparison")
@@ -853,33 +698,37 @@ def compare_movies_page(db, artifacts):
         })
         st.table(comparison)
 
-        st.subheader("Ensemble Audience Score Comparison")
+        st.subheader("Ensemble Prediction Comparison")
         pred1, _ = predict_ensemble(m1, artifacts)
         pred2, _ = predict_ensemble(m2, artifacts)
+
         c1, c2 = st.columns(2)
-        with c1:
-            st.metric(movie1_title, f"{pred1 * 100:.1f}%" if not np.isnan(pred1) else "N/A")
-        with c2:
-            st.metric(movie2_title, f"{pred2 * 100:.1f}%" if not np.isnan(pred2) else "N/A")
+        c1.metric(movie1_title, f"{pred1 * 100:.1f}%" if not np.isnan(pred1) else "N/A")
+        c2.metric(movie2_title, f"{pred2 * 100:.1f}%" if not np.isnan(pred2) else "N/A")
+
 
 def analytics_page(db):
     st.title("Analytics Dashboard")
+    st.markdown("Explore high-level patterns in the Filmlytics dataset.")
 
     tab1, tab2, tab3 = st.tabs(["Genre Analysis", "Rating Distribution", "Success Trends"])
+
     with tab1:
         st.subheader("Genre Distribution")
         fig = create_genre_distribution_chart(db)
         if fig:
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Not enough data to compute genre distribution.")
+            st.info("No data available for genre distribution.")
+
     with tab2:
-        st.subheader("TMDB Rating Distribution")
+        st.subheader("Rating Distribution (TMDB)")
         fig = create_rating_distribution(db)
         if fig:
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Not enough data to compute rating distribution.")
+            st.info("No data available for rating distribution.")
+
     with tab3:
         st.subheader("Success Rate Over Time")
         fig = create_success_over_time(db)
@@ -888,43 +737,166 @@ def analytics_page(db):
         else:
             st.info("Insufficient data for time series analysis.")
 
+
 def modeling_page(artifacts):
-    st.title("Modeling & Ensemble Framework")
+    st.title("Modeling and Ensemble Overview")
 
-    st.markdown("### Graph-Based Models and Feature-Based Baselines")
+    stacking_model = artifacts.get('stacking_model') if artifacts else None
+    ensemble_meta = artifacts.get('ensemble_meta', {}) if artifacts else {}
 
-    col_left, col_right = st.columns([1.1, 1])
-    with col_left:
+    tab1, tab2, tab3 = st.tabs(["Modeling Overview", "Ensemble Model", "Data Pipeline"])
+
+    # TAB 1: Modeling Overview
+    with tab1:
+        st.subheader("Modeling Framework")
+
         st.markdown("#### Graph Neural Network (GNN)")
         st.write(
             """
-- Nodes: ~66k films from 2010–2025  
-- Edges: shared genres, directors, production countries, and diversity similarity  
-- Architecture: 2-layer GraphSAGE with batch norm, dropout, and residual connections  
-- Goal: propagate information across similar films to improve audience score prediction.
+            - Nodes: 66k+ films from 2010–2025  
+            - Edges: Shared genres, directors, production countries, and diversity similarity  
+            - Architecture: Two-layer GraphSAGE with batch normalization, dropout, and residual connections  
+            - Objective: Predict audience score using neighborhood aggregation on the movie graph  
             """
         )
 
         st.markdown("#### Knowledge Graph Convolutional Network (KGCN)")
         st.write(
             """
-- Heterogeneous graph of movies, genres, directors, production companies, and countries  
-- Relation-specific parameters to capture different semantic edge types  
-- Learns rich embeddings for film entities that complement the GNN.
+            - Nodes: films, directors, actors, genres, production companies  
+            - Edges: semantic relations (e.g., *directed_by*, *has_genre*, *produced_by*)  
+            - Learns relation-specific embeddings that capture structured metadata interactions  
             """
         )
 
-        st.markdown("#### XGBoost Baseline")
+        st.markdown("#### XGBoost")
         st.write(
             """
-- ~150 engineered features: metadata, engagement metrics, recency-weighted trailer stats, and diversity indicators  
-- Gradient Boosting Regressor with tuned depth, learning rate, and number of trees  
-- Strong individual performance and interpretable feature importances.
+            - 150+ engineered features across:  
+              - TMDB metadata (runtime, budget, popularity, release lag)  
+              - Rotten Tomatoes critic signals  
+              - YouTube trailer engagement metrics (views, likes, comment ratio, recency)  
+              - Gender diversity indicators (female cast share, representation alignment)  
+            - Strong baseline for tabular prediction of audience scores  
             """
         )
 
-    with col_right:
-        st.markdown("#### System Architecture")
+        st.markdown("#### Individual Model Performance (on validation set)")
+        perf_df = pd.DataFrame({
+            "Model": ["GNN", "KGCN", "XGBoost"],
+            "RMSE": [0.1929, 0.1709, 0.1097]
+        })
+        fig = px.bar(
+            perf_df,
+            x="Model",
+            y="RMSE",
+            title="Individual Model RMSE",
+            text="RMSE"
+        )
+        fig.update_traces(texttemplate='%{text:.3f}', textposition='outside')
+        fig.update_layout(yaxis_title="RMSE", uniformtext_minsize=10, uniformtext_mode='hide')
+        st.plotly_chart(fig, use_container_width=True)
+
+    # TAB 2: Ensemble Model
+    with tab2:
+        st.subheader("Stacking Ensemble Model")
+
+        if stacking_model is not None:
+            st.success("Stacking meta-learner loaded successfully.")
+        else:
+            st.warning("Stacking model not found. The app falls back to a weighted average ensemble.")
+
+        st.write(
+            """
+            The final audience score prediction is produced by a stacking ensemble that combines:
+            - GNN predictions (graph-based similarity)  
+            - KGCN predictions (relational knowledge graph)  
+            - XGBoost predictions (tabular features)  
+
+            Instead of a fixed average, the meta-learner is trained to learn how much to trust
+            each base model in different regions of the prediction space.
+            """
+        )
+
+        if stacking_model is not None:
+            meta_cols = st.columns(3)
+            with meta_cols[0]:
+                model_name = ensemble_meta.get('meta_model', 'Gradient Boosting')
+                st.metric("Meta-Model", model_name)
+            with meta_cols[1]:
+                rmse = ensemble_meta.get('stacking_rmse', 0.1085)
+                st.metric("Stacking RMSE", f"{rmse:.4f}")
+            with meta_cols[2]:
+                st.metric("Accuracy (±10%)", "80.2%")
+
+            st.info(
+                """
+                Workflow:
+                1. Train GNN, KGCN, and XGBoost on the same set of labeled films.  
+                2. Collect their predictions and use them as features in a new model.  
+                3. Train the meta-learner (e.g., Gradient Boosting) on these predictions vs. true scores.  
+                4. Use this meta-learner at inference time for new movies.  
+                """
+            )
+
+        st.markdown("---")
+        st.subheader("Coverage of Base Predictions")
+
+        cov1, cov2, cov3 = st.columns(3)
+        with cov1:
+            gnn_preds_len = len(artifacts['gnn_preds']) if artifacts and artifacts.get('gnn_preds') is not None else 0
+            st.metric("GNN Predictions", f"{gnn_preds_len:,}")
+        with cov2:
+            kgcn_preds_len = len(artifacts['kgcn_preds']) if artifacts and artifacts.get('kgcn_preds') is not None else 0
+            st.metric("KGCN Predictions", f"{kgcn_preds_len:,}")
+        with cov3:
+            xgb_preds_len = len(artifacts['xgb_preds']) if artifacts and artifacts.get('xgb_preds') is not None else 0
+            st.metric("XGBoost Predictions", f"{xgb_preds_len:,}")
+
+        st.markdown("---")
+        st.subheader("Original vs Stacking Comparison")
+
+        comparison_data = {
+            'Method': ['Original (Weighted Avg)', 'Stacking (Gradient Boosting)'],
+            'RMSE': [0.1452, ensemble_meta.get('stacking_rmse', 0.0996)],
+            'MAE': [0.1170, 0.0669],
+            'Within ±10%': ['48.9%', '80.2%'],
+            'Within ±5%': ['24.2%', '54.5%']
+        }
+        st.dataframe(pd.DataFrame(comparison_data), hide_index=True, use_container_width=True)
+        st.caption(
+            "Stacking substantially improves RMSE and the fraction of movies predicted within 5–10 percentage points of the true audience score."
+        )
+
+    # TAB 3: Data Pipeline
+    with tab3:
+        st.subheader("Data Pipeline")
+
+        st.markdown("#### Data Sources")
+        st.write(
+            """
+            - **TMDB (≈66k films)**  
+              Genres, runtime, cast, crew, popularity, budget, release info, posters  
+            - **Rotten Tomatoes (≈6.8k films)**  
+              Audience and critic scores, critic review snippets  
+            - **YouTube API (≈42k trailers)**  
+              Trailer metadata, engagement metrics (views, likes, comments), recency  
+            """
+        )
+
+        st.markdown("#### Cleaning and Integration")
+        st.write(
+            """
+            - Join on TMDB IDs and (title, year) where necessary  
+            - De-duplicate trailers with heuristics and URL patterns  
+            - Normalize numeric features (e.g., log-transform budget and popularity)  
+            - Compute sentiment scores for critic quotes and trailer comments  
+            - Derive gender representation signals (e.g., female cast share, alignment with overall cast)  
+            - Store the final integrated dataset in MongoDB with a structured movie document schema  
+            """
+        )
+
+        st.markdown("#### High-Level Schema (Conceptual)")
         st.graphviz_chart(
             """
             digraph {
@@ -945,98 +917,139 @@ def modeling_page(artifacts):
             """
         )
 
-    st.markdown("---")
-    st.markdown("### Ensemble Performance Summary")
 
-    stacking_model = artifacts.get('stacking_model') if artifacts else None
-    ensemble_meta = artifacts.get('ensemble_meta', {}) if artifacts else {}
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("GNN RMSE", "0.1929")
-        st.caption("Graph-based similarity learning")
-    with c2:
-        st.metric("KGCN RMSE", "0.1709")
-        st.caption("Knowledge graph relationships")
-    with c3:
-        st.metric("XGBoost RMSE", "0.1097")
-        st.caption("Feature-engineered baseline")
-
-    st.markdown("")
-    c4, c5 = st.columns(2)
-    with c4:
-        if stacking_model is not None:
-            rmse = ensemble_meta.get('stacking_rmse', 0.0996)
-            st.metric("Stacking Ensemble RMSE", f"{rmse:.4f}")
-        else:
-            st.metric("Stacking Ensemble RMSE", "N/A")
-    with c5:
-        st.metric("Within ±10% of Audience Score", "≈80% (held-out set)")
-
-    st.markdown("#### Original Weighted Average vs Stacking")
-    comparison_data = {
-        'Method': ['Original (Weighted Avg)', 'Stacking (Gradient Boosting)'],
-        'RMSE': [0.1452, 0.0996],
-        'MAE': [0.1170, 0.0669],
-        'Within ±10%': ['48.9%', '80.2%'],
-        'Within ±5%': ['24.2%', '54.5%']
-    }
-    st.dataframe(pd.DataFrame(comparison_data), hide_index=True, use_container_width=True)
-
-def visual_graph_page(db):
+def visual_graph_explorer_page(db):
     st.title("Visual Graph Explorer")
-
-    st.write(
-        """
-Explore a local neighborhood of similar films in the graph.  
-Select a movie to view its connections based on shared genres and popularity.
-        """
-    )
+    st.markdown("Explore a local similarity neighborhood around a selected film.")
 
     titles = get_all_movie_titles(db)
-    title = st.selectbox("Select a movie:", ["-- Select --"] + titles)
-    if title != "-- Select --":
-        movie = search_movie(db, title)
-        if movie:
-            fig = create_similarity_graph_figure(db, movie, max_neighbors=20)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Not enough neighborhood information to build a similarity graph for this film.")
+    if not titles:
+        st.info("No titles available for graph visualization.")
+        return
+
+    choice = st.selectbox("Select a film:", titles)
+    movie = search_movie(db, choice)
+    if not movie:
+        st.error("Selected movie not found in database.")
+        return
+
+    genres = movie["production"].get("genres", [])
+    if not genres:
+        st.info("Selected movie has no genre information; cannot construct similarity graph.")
+        return
+
+    # Get neighbors from same primary genre
+    primary_genre = genres[0]
+    neighbors = get_movies_by_genre(db, primary_genre, limit=20)
+
+    # Build a simple graph: center movie + neighbors
+    G = nx.Graph()
+    center_id = movie["tmdb_id"]
+    G.add_node(center_id, label=choice, group="center")
+
+    for m in neighbors:
+        mid = m["tmdb_id"]
+        if mid == center_id:
+            continue
+        G.add_node(mid, label=m["title"], group="neighbor")
+        G.add_edge(center_id, mid)
+
+    if G.number_of_nodes() <= 1:
+        st.info("Not enough neighbors in this genre for a graph.")
+        return
+
+    # Layout
+    pos = nx.spring_layout(G, seed=42, k=0.6)
+
+    # Build Plotly scatter for nodes
+    node_x = []
+    node_y = []
+    node_text = []
+    node_color = []
+
+    for node in G.nodes():
+        x, y = pos[node]
+        node_x.append(x)
+        node_y.append(y)
+        node_text.append(G.nodes[node]["label"])
+        if node == center_id:
+            node_color.append("crimson")
         else:
-            st.error("Movie not found in database.")
+            node_color.append("steelblue")
+
+    # Edges
+    edge_x = []
+    edge_y = []
+    for u, v in G.edges():
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
+
+    edge_trace = go.Scatter(
+        x=edge_x,
+        y=edge_y,
+        line=dict(width=1),
+        hoverinfo="none",
+        mode="lines"
+    )
+
+    node_trace = go.Scatter(
+        x=node_x,
+        y=node_y,
+        mode="markers+text",
+        text=node_text,
+        textposition="top center",
+        hoverinfo="text",
+        marker=dict(
+            size=[16 if t == choice else 10 for t in node_text]
+        )
+    )
+
+    fig = go.Figure(data=[edge_trace, node_trace])
+    fig.update_layout(
+        title=f"Local Similarity Graph for “{choice}” (genre: {primary_genre})",
+        showlegend=False,
+        margin=dict(l=20, r=20, t=60, b=20),
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        height=600
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
 
 def acknowledgements_page():
-    st.title("Team & Acknowledgements")
+    st.title("Team and Acknowledgements")
 
-    st.markdown("### Team 15 — Cinemaniacs")
+    st.subheader("Team 15 — Cinemaniacs")
     st.write(
         """
-- Angela Cottone  
-- Nidhi Deshmukh  
-- Dylan Sidhu  
-- Matthew Ward  
-- Clara Wei  
+        - Angela Cottone  
+        - Nidhi Deshmukh  
+        - Dylan Sidhu  
+        - Matthew Ward  
+        - Clara Wei  
         """
     )
 
-    st.markdown("### Data Sources")
+    st.subheader("Data Sources")
     st.write(
         """
-- TMDB API  
-- Rotten Tomatoes website  
-- YouTube Data API  
+        - TMDB API  
+        - Rotten Tomatoes (web-scraped)  
+        - YouTube Data API  
         """
     )
 
-    st.markdown("### Acknowledgements")
+    st.subheader("Acknowledgements")
     st.write(
         """
-We would like to thank the STA 160 instructional team for guidance and support throughout the project, 
-as well as the maintainers of the external film data sources that made this work possible. 
-We also acknowledge the use of AI-assisted tools for organization, prototyping, and documentation.
+        We thank the STA 160 instructional team for guidance and support throughout the project, 
+        as well as collaborative tools used for development, organization, and research.
         """
     )
+
 
 # =============================================================================
 # MAIN APP
@@ -1045,7 +1058,7 @@ We also acknowledge the use of AI-assisted tools for organization, prototyping, 
 def main():
     db = get_database_connection()
     if db is None:
-        st.error("Unable to connect to database. Please check MongoDB credentials.")
+        st.error("Unable to connect to database. Please check your MongoDB credentials.")
         st.stop()
 
     artifacts, error = load_ensemble_artifacts()
@@ -1053,7 +1066,7 @@ def main():
         st.error(f"Ensemble artifacts failed to load: {error}")
         st.stop()
     else:
-        st.sidebar.success("Model artifacts loaded")
+        st.sidebar.success("Artifacts loaded")
 
     st.sidebar.title("Navigation")
     page = st.sidebar.radio(
@@ -1066,8 +1079,7 @@ def main():
             "Modeling",
             "Visual Graph Explorer",
             "Acknowledgements"
-        ],
-        key="page"
+        ]
     )
 
     if page == "Home":
@@ -1081,20 +1093,21 @@ def main():
     elif page == "Modeling":
         modeling_page(artifacts)
     elif page == "Visual Graph Explorer":
-        visual_graph_page(db)
+        visual_graph_explorer_page(db)
     elif page == "Acknowledgements":
         acknowledgements_page()
 
     st.markdown("---")
     st.markdown(
         """
-        <div style='text-align: center'>
+        <div style='text-align: center; font-size: 0.9rem; color: #9ca3af;'>
             <p>Filmlytics | STA 160 Project | Team 15</p>
-            <p>Predicting Movie Audience Scores Using Graph-Based Modeling</p>
+            <p>Ensemble Audience Score Prediction Platform</p>
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
+
 
 if __name__ == "__main__":
     main()
