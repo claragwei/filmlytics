@@ -4,8 +4,8 @@ import pandas as pd
 from datetime import datetime
 
 # ==== CONFIGURATION ====
-TMDB_API_KEY = "f3876225152794090ccbaf4b57a58132"
-YOUTUBE_API_KEY = "AIzaSyDMRHnZBG562Pv1ydN-1cuX3w5u6fLcqbo"
+TMDB_API_KEY = "API Key"
+YOUTUBE_API_KEY = "API Key"
 
 INPUT_CSV = "tmdb_filtered_2.csv"                 # Input movie list file
 OUTPUT_CSV = "movie_trailer_dataset.csv"      # Output dataset file
