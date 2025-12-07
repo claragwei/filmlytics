@@ -521,8 +521,19 @@ def create_similarity_graph_figure(db, center_movie, max_neighbors=15):
 
 def home_page(db):
     # Title + subtitle
-    st.markdown("<div class='main-title'>Predicting Movie Audience Scores Using Graph-Based Modeling</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-title'>Filmytics — Combining graph learning, metadata, and ensemble modeling for film audience prediction.</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='main-title'>"
+        "Predicting Movie Audience Scores Using Graph-Based Modeling"
+        "</div>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        "<div class='sub-title'>"
+        "Filmytics — Combining graph learning, metadata, and ensemble "
+        "modeling for film audience prediction."
+        "</div>",
+        unsafe_allow_html=True
+    )
 
     # Hero navigation buttons
     st.markdown("<div class='hero-buttons-row'>", unsafe_allow_html=True)
@@ -560,12 +571,17 @@ def home_page(db):
 
     st.write(
         """
-**Filmytics** is a data-driven project that predicts audience scores for movies *before* release.  
-Studios, distributors, and creators depend on audience reception to shape marketing, streaming deals, and franchise decisions.
+        **Filmytics** is a data-driven project that predicts audience scores
+        for movies *before* release. Studios, distributors, and creators
+        depend on audience reception to shape marketing, streaming deals,
+        and franchise decisions.
 
-For movie fans and researchers, understanding what drives audience opinion reveals which films resonate most and whether representation (e.g., gender balance in cast) affects outcomes.
+        For movie fans and researchers, understanding what drives audience
+        opinion reveals which films resonate most and whether representation
+        (e.g., gender balance in cast) affects outcomes.
 
-Overall, Filmytics gathers public film data, learns patterns from past movies, and estimates how audiences will react to new releases.
+        Overall, Filmytics gathers public film data, learns patterns from
+        past movies, and estimates how audiences will react to new releases.
         """
     )
 
@@ -576,35 +592,41 @@ Overall, Filmytics gathers public film data, learns patterns from past movies, a
 
     st.write(
         """
-1. **Data collection from three major sources**  
-   - **TMDB**: metadata (runtime, cast, genres, budget, release date)  
-   - **Rotten Tomatoes**: critic & audience scores, review texts  
-   - **YouTube API**: trailer views, likes, engagement metrics  
+1. **Data collection from three major sources**
+   - **TMDB**: metadata (runtime, cast, genres, budget, release date)
+   - **Rotten Tomatoes**: critic & audience scores, review texts
+   - **YouTube API**: trailer views, likes, engagement metrics
 
    → Final dataset covers **≈66,000 films (2010–2025)**.
 
-2. **Data cleaning & merging** into structured MongoDB documents  
-   - Remove duplicates  
-   - Normalize numeric fields (log budgets, scaled metrics)  
-   - Compute new metrics: trailer sentiment, female cast share  
+2. **Data cleaning & merging** into structured MongoDB documents
+   - Remove duplicates
+   - Normalize numeric fields (log budgets, scaled metrics)
+   - Compute new metrics: trailer sentiment, female cast share
 
-3. **Feature Engineering**  
-   - ~150 features: metadata, engagement signals, critic cues, representation features  
-   - Normalized + encoded for model performance  
+3. **Feature Engineering**
+   - ~150 features: metadata, engagement signals, critic cues,
+     representation features
+   - Normalized + encoded for model performance
 
-4. **Train multiple complementary models**  
-   - **GNN** → similarity relationships between films  
-   - **KGCN** → entity-level graph of films, people, genres  
-   - **XGBoost** → rich tabular baseline  
+4. **Train multiple complementary models**
+   - **GNN** → similarity relationships between films
+   - **KGCN** → entity-level graph of films, people, genres
+   - **XGBoost** → rich tabular baseline
 
-5. **Stacking Ensemble**  
-   - Gradient Boosting meta-learner  
-   - Learns when to trust each model  
+5. **Stacking Ensemble**
+   - Gradient Boosting meta-learner
+   - Learns when to trust each model
 """
     )
 
     st.markdown("### Workflow Diagram (Placeholder)")
-    st.info("Insert workflow diagram here:\nTMDB + RT + YouTube → Clean/Merge → Feature Engineering → {GNN, KGCN, XGBoost} → Stacking Meta-Learner → Audience Score Prediction")
+    st.info(
+        "Insert workflow diagram here:\n"
+        "TMDB + RT + YouTube → Clean/Merge → Feature Engineering → "
+        "{GNN, KGCN, XGBoost} → Stacking Meta-Learner → "
+        "Audience Score Prediction"
+    )
 
     # ===============================
     # KEY MODELING STEPS
@@ -614,38 +636,39 @@ Overall, Filmytics gathers public film data, learns patterns from past movies, a
     with st.expander("Step 1 — Data & Preprocessing"):
         st.write(
             """
-- Join using TMDB IDs, resolve duplicates  
-- Clean trailers & compute sentiment  
-- Extract representation features (female cast %, billing alignment)  
-- Store cleaned dataset in MongoDB  
+- Join using TMDB IDs, resolve duplicates
+- Clean trailers & compute sentiment
+- Extract representation features (female cast %, billing alignment)
+- Store cleaned dataset in MongoDB
             """
         )
 
     with st.expander("Step 2 — Feature Engineering"):
         st.write(
             """
-Feature groups include:  
-- Film metadata (runtime, budget, genres)  
-- Social cues (views, likes, recency)  
-- Critic-derived features  
-- Diversity & representation indicators  
+Feature groups include:
+- Film metadata (runtime, budget, genres)
+- Social cues (views, likes, recency)
+- Critic-derived features
+- Diversity & representation indicators
             """
         )
 
     with st.expander("Step 3 — Base Models"):
         st.write(
             """
-**GNN:** Movie similarity graph using genres, directors, countries, representation alignment  
-**KGCN:** Entity graph including cast, crew, companies  
-**XGBoost:** 150+ engineered tabular features  
+**GNN:** Movie similarity graph using genres, directors, countries,
+representation alignment
+**KGCN:** Entity graph including cast, crew, companies
+**XGBoost:** 150+ engineered tabular features
             """
         )
 
     with st.expander("Step 4 — Stacking Ensemble"):
         st.write(
             """
-We combine predictions using a **Gradient Boosting meta-learner**, improving accuracy significantly  
-beyond simple averaging.  
+We combine predictions using a **Gradient Boosting meta-learner**,
+improving accuracy significantly beyond simple averaging.
             """
         )
 
@@ -656,16 +679,21 @@ beyond simple averaging.
 
     st.write(
         """
-- XGBoost performed best among single models → **RMSE ≈ 0.110**  
-- KGCN second-best → **RMSE ≈ 0.171**  
-- GNN third → **RMSE ≈ 0.195**  
-- Stacking ensemble improved performance to **RMSE ≈ 0.1085**, a large improvement over a simple weighted average (0.1452).  
-- **80.2%** of predictions fall within ±10 percentage points of the true audience score.
+- XGBoost performed best among single models → **RMSE ≈ 0.110**
+- KGCN second-best → **RMSE ≈ 0.171**
+- GNN third → **RMSE ≈ 0.195**
+- Stacking ensemble improved performance to **RMSE ≈ 0.1085**,
+  a large improvement over a simple weighted average (0.1452).
+- **80.2%** of predictions fall within ±10 percentage points
+  of the true audience score.
         """
     )
 
     st.markdown("### Results Table (Placeholder)")
-    st.info("Insert table of key metrics here — RMSE, MAE, coverage, % within ±10%, etc.")
+    st.info(
+        "Insert table of key metrics here — RMSE, MAE, coverage, "
+        "% within ±10%, etc."
+    )
 
     # ===============================
     # WHAT THIS MEANS & NEXT STEPS
@@ -674,22 +702,17 @@ beyond simple averaging.
 
     st.write(
         """
-This system can help studios:  
-- Estimate audience reception early  
-- Identify where representation correlates with performance  
-- Prioritize marketing spend for films likely to underperform  
-
-**Future Work**  
-- Include social media trends (Twitter / TikTok)  
-- Add fine-grained cast/crew diversity measures  
-- Expand to multilingual markets  
+This system can help studios:
+- Estimate audience reception early
+- Identify where representation correlates with performance
+- Prioritize marketing spend for films likely to underperform
         """
     )
 
     st.markdown("---")
 
     # ===============================
-    # DATABASE STATISTICS (KEPT SAME)
+    # DATABASE STATISTICS
     # ===============================
     stats = get_database_stats(db)
     c1, c2, c3 = st.columns(3)
@@ -698,26 +721,33 @@ This system can help studios:
     with c2:
         st.metric("With Audience Scores", f"{stats['with_rotten_tomatoes']:,}")
     with c3:
-        success_rate = (stats['successful'] / stats['total'] * 100) if stats['total'] > 0 else 0
+        if stats['total'] > 0:
+            success_rate = stats['successful'] / stats['total'] * 100
+        else:
+            success_rate = 0
         st.metric("Success-Labeled %", f"{success_rate:.1f}%")
 
     st.subheader("Top Rated Movies")
     top_movies = get_top_movies(db, limit=10)
     for i, movie in enumerate(top_movies[:5], 1):
-        with st.expander(f"{i}. {movie['title']} – TMDB {movie['tmdb_metrics']['vote_average']}/10"):
+        vote_avg = movie['tmdb_metrics']['vote_average']
+        expander_title = f"{i}. {movie['title']} – TMDB {vote_avg}/10"
+        with st.expander(expander_title):
             c1, c2 = st.columns([1, 2])
             with c1:
                 poster = movie.get('content', {}).get('poster_url')
                 if poster:
                     st.image(poster, width=150)
             with c2:
-                st.write(f"**Genres:** {', '.join(movie['production'].get('genres', []))}")
-                st.write(f"**Runtime:** {movie['production'].get('runtime', 'N/A')} minutes")
-                st.write(f"**Votes:** {movie['tmdb_metrics']['vote_count']:,}")
+                genres = movie['production'].get('genres', [])
+                st.write(f"**Genres:** {', '.join(genres)}")
+                runtime = movie['production'].get('runtime', 'N/A')
+                st.write(f"**Runtime:** {runtime} minutes")
+                votes = movie['tmdb_metrics']['vote_count']
+                st.write(f"**Votes:** {votes:,}")
                 overview = movie.get('content', {}).get('overview')
                 if overview:
-                    st.write(f"{overview[:260]}...")  # trim for display
-
+                    st.write(f"{overview[:260]}...")
 
 
 def movie_search_page(db, artifacts):
