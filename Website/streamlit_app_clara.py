@@ -557,32 +557,6 @@ def home_page(db):
         unsafe_allow_html=True
     )
 
-    # ===============================
-    # NEXT STEPS
-    # ===============================
-
-    st.markdown("<div class='section-header'>What this means & next steps</div>", unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class='content-text'>
-        This system can help:
-        <ul>
-            <li>Studios estimate audience reception earlier</li>
-            <li>Identify where representation correlates with performance</li>
-            <li>Improve targeting for marketing spend</li>
-        </ul>
-
-        Future enhancements may incorporate:
-        <ul>
-            <li>Social trend signals (TikTok, X/Twitter)</li>
-            <li>More refined cast/crew diversity metrics</li>
-            <li>Temporal modeling of trailer engagement</li>
-        </ul>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
 
 
 
