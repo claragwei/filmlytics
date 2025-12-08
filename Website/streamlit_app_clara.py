@@ -709,14 +709,16 @@ def compare_movies_page(db, artifacts):
 
 def presentation_page():
     st.title("Project Presentation")
-
     st.markdown("### Watch our presentation below:")
+    # https://drive.google.com/file/d/1ZVcu5R3pRkKLgJYFw0KhWlGeEBlyAp46/view?usp=drive_link
+    drive_embed_url = "https://drive.google.com/file/d/1ZVcu5R3pRkKLgJYFw0KhWlGeEBlyAp46/preview"
 
-    # Youtube embed
-    st.video("https://www.youtube.com/watch?v=sDj72zqZakE")
-
-    st.markdown("---")
-    st.markdown("Enjoy the presentation!")
+    st.components.v1.iframe(
+        drive_embed_url,
+        width=800,
+        height=450,
+        scrolling=False
+    )
 
 
 def analytics_page(db):
