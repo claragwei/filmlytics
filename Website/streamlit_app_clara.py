@@ -708,7 +708,7 @@ def compare_movies_page(db, artifacts):
         c2.metric(movie2_title, f"{pred2 * 100:.1f}%" if not np.isnan(pred2) else "N/A")
 
 def presentation_page():
-    st.title("📽️ Project Presentation")
+    st.title("Project Presentation")
 
     st.markdown("### Watch our presentation below:")
 
@@ -1084,7 +1084,7 @@ def main():
     page = st.sidebar.radio(
         "Go to",
         [
-            "Homer",
+            "Home",
             "Movie Search",
             "Compare Movies",
             "Analytics Dashboard",
