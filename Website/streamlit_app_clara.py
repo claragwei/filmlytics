@@ -429,7 +429,7 @@ def create_success_over_time(db):
 def home_page(db):
 
     # ===============================
-    # HERO HEADER (Large, Professional)
+    # HEADER
     # ===============================
 
     st.markdown(
@@ -706,6 +706,17 @@ def compare_movies_page(db, artifacts):
         c1, c2 = st.columns(2)
         c1.metric(movie1_title, f"{pred1 * 100:.1f}%" if not np.isnan(pred1) else "N/A")
         c2.metric(movie2_title, f"{pred2 * 100:.1f}%" if not np.isnan(pred2) else "N/A")
+
+def presentation_page():
+    st.title("📽️ Project Presentation")
+
+    st.markdown("### Watch our presentation below:")
+
+    # Youtube embed
+    st.video("https://www.youtube.com/watch?v=sDj72zqZakE")
+
+    st.markdown("---")
+    st.markdown("Enjoy the presentation!")
 
 
 def analytics_page(db):
@@ -1073,12 +1084,13 @@ def main():
     page = st.sidebar.radio(
         "Go to",
         [
-            "Home",
+            "Homer",
             "Movie Search",
             "Compare Movies",
             "Analytics Dashboard",
             "Modeling",
             "Visual Graph Explorer",
+            "Presentation",
             "Acknowledgements"
         ]
     )
@@ -1095,6 +1107,8 @@ def main():
         modeling_page(artifacts)
     elif page == "Visual Graph Explorer":
         visual_graph_explorer_page(db)
+    elif page == "Presentation":
+        presentation_page()
     elif page == "Acknowledgements":
         acknowledgements_page()
 
