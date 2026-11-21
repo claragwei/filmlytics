@@ -16,11 +16,15 @@ import pickle  # For loading stacking model
 # CONFIG & GLOBAL STYLE
 # =============================================================================
 
-# MongoDB Connection – uses secrets on cloud, falls back to hard-coded URI locally
-MONGODB_URI = st.secrets.get(
-    "MONGODB_URI",
-    "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
-)
+# MongoDB Connection – Streamlit secrets on cloud (or .streamlit/secrets.toml locally),
+# falling back to the MONGODB_URI environment variable. Never hardcode this value.
+try:
+    MONGODB_URI = st.secrets["MONGODB_URI"]
+except Exception:
+    MONGODB_URI = os.environ.get("MONGODB_URI")
+if not MONGODB_URI:
+    st.error("MONGODB_URI is not set. Add it to .streamlit/secrets.toml or the environment.")
+    st.stop()
 
 # Page Configuration
 st.set_page_config(

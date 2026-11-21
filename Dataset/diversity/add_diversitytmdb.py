@@ -1,3 +1,4 @@
+import os
 """
 Fast Gender Data Collection - Uses Movie IDs from Existing CSV
 Much faster than searching for each person by name!
@@ -13,7 +14,7 @@ import json
 # CONFIGURATION
 # ============================================================================
 
-TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJiMDAzMDhjZWMzZWZiMWEwYzUzYzMxYWNmOWZkNzA1NyIsIm5iZiI6MTc2MTA2ODg3NS40NzksInN1YiI6IjY4ZjdjNzRiMjVlMzNjMTdiYzg3ZDViYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.Q5JNWorEJL9w9rwop3QVePSSzqx90pGN6VB04YAwGAY"
+TMDB_BEARER_TOKEN = os.environ["TMDB_BEARER_TOKEN"]
 
 BASE_URL = "https://api.themoviedb.org/3"
 INPUT_CSV = "/Users/nidhideshmukh/Documents/GitHub/filmlytics/Dataset/diversity/complete_data.csv"

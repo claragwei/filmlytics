@@ -1,9 +1,10 @@
+import os
 from pymongo import MongoClient
 import pandas as pd
 from tqdm import tqdm
 
 # Configuration
-MONGODB_URI = "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
+MONGODB_URI = os.environ["MONGODB_URI"]
 DATABASE_NAME = "cinemaniacs"
 COLLECTION_NAME = "movies"
 CSV_WITH_DIVERSITY = "/Users/nidhideshmukh/Documents/GitHub/filmlytics/complete_data_with_diversity.csv"

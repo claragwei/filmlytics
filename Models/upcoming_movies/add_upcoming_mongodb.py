@@ -1,3 +1,4 @@
+import os
 
 import requests
 from datetime import datetime, timedelta
@@ -6,9 +7,9 @@ from pymongo.server_api import ServerApi
 import certifi
 
 
-TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJiMDAzMDhjZWMzZWZiMWEwYzUzYzMxYWNmOWZkNzA1NyIsIm5iZiI6MTc2MTA2ODg3NS40NzksInN1YiI6IjY4ZjdjNzRiMjVlMzNjMTdiYzg3ZDViYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.Q5JNWorEJL9w9rwop3QVePSSzqx90pGN6VB04YAwGAY"
+TMDB_BEARER_TOKEN = os.environ["TMDB_BEARER_TOKEN"]
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
-MONGODB_URI = "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
+MONGODB_URI = os.environ["MONGODB_URI"]
 
 
 def fetch_upcoming_movies(weeks_ahead=6, include_announed=False):

@@ -28,7 +28,7 @@ import pickle
 ARTIFACT_DIR = os.path.join(os.path.dirname(__file__), 'model_artifacts')
 
 # MongoDB connection
-MONGODB_URI = "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
+MONGODB_URI = os.environ["MONGODB_URI"]
 
 # Default weights (will be optimized)
 DEFAULT_WEIGHTS = {

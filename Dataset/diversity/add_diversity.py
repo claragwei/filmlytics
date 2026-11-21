@@ -22,7 +22,7 @@ import os
 # USE_BEARER_TOKEN = False
 
 # Option 2: Bearer Token (Recommended)
-TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJiMDAzMDhjZWMzZWZiMWEwYzUzYzMxYWNmOWZkNzA1NyIsIm5iZiI6MTc2MTA2ODg3NS40NzksInN1YiI6IjY4ZjdjNzRiMjVlMzNjMTdiYzg3ZDViYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.Q5JNWorEJL9w9rwop3QVePSSzqx90pGN6VB04YAwGAY"  # Replace with your actual token
+TMDB_BEARER_TOKEN = os.environ["TMDB_BEARER_TOKEN"]  # Replace with your actual token
 USE_BEARER_TOKEN = True
 
 # File paths

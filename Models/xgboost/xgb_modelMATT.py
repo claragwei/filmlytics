@@ -26,7 +26,7 @@ os.makedirs(output_folder, exist_ok=True)
 # 1. CONNECT TO MONGODB AND LOAD DATA
 # =============================================================================
 client = MongoClient(
-    "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics",
+    os.environ["MONGODB_URI"],
     server_api=ServerApi("1"),
     tlsCAFile=certifi.where(),
 )

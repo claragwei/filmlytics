@@ -1,3 +1,4 @@
+import os
 # -*- coding: utf-8 -*-
 """KGCN
 
@@ -37,7 +38,7 @@ LR = 5e-4
 WEIGHT_DECAY = 1e-5
 PATIENCE = 6
 GRAD_CLIP_NORM = 2.0
-MONGO_URI = "mongodb+srv://cinemaniacs:filmlytics@filmlytics.1emhcue.mongodb.net/?appName=filmlytics"
+MONGO_URI = os.environ["MONGODB_URI"]
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Device:", device)

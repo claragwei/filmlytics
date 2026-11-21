@@ -1,8 +1,9 @@
+import os
 import requests
 import pandas as pd
 import time
 
-TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJiMDAzMDhjZWMzZWZiMWEwYzUzYzMxYWNmOWZkNzA1NyIsIm5iZiI6MTc2MTA2ODg3NS40NzksInN1YiI6IjY4ZjdjNzRiMjVlMzNjMTdiYzg3ZDViYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.Q5JNWorEJL9w9rwop3QVePSSzqx90pGN6VB04YAwGAY"
+TMDB_BEARER_TOKEN = os.environ["TMDB_BEARER_TOKEN"]
 BASE_URL = "https://api.themoviedb.org/3"
 
 class TMDBBatchCollector:

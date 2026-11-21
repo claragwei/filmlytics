@@ -1,2 +1,12 @@
 # Ignore all .DS_Store files (common on macOS).DS_Store
 .DS_Store
+# Secrets
+.env
+.streamlit/secrets.toml
+
+# Virtual environments / Python cruft
+fix_env/
+venv/
+.venv/
+__pycache__/
+*.pyc
