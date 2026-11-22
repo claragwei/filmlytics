@@ -7,4 +7,5 @@ certifi
 joblib
 pyvis
 xgboost
-scikit-learn
+scikit-learn==1.5.2
+dnspython

@@ -7,6 +7,7 @@ import networkx as nx
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 import certifi
+from db import get_client, ping as db_ping
 import os
 import joblib  # For loading XGBoost model and scaler
 import json    # For loading feature list / ensemble meta
@@ -16,15 +17,7 @@ import pickle  # For loading stacking model
 # CONFIG & GLOBAL STYLE
 # =============================================================================
 
-# MongoDB Connection – Streamlit secrets on cloud (or .streamlit/secrets.toml locally),
-# falling back to the MONGODB_URI environment variable. Never hardcode this value.
-try:
-    MONGODB_URI = st.secrets["MONGODB_URI"]
-except Exception:
-    MONGODB_URI = os.environ.get("MONGODB_URI")
-if not MONGODB_URI:
-    st.error("MONGODB_URI is not set. Add it to .streamlit/secrets.toml or the environment.")
-    st.stop()
+# MongoDB connection lives in db.py and reads st.secrets["MONGO_URI"].
 
 # Page Configuration
 st.set_page_config(
@@ -76,20 +69,12 @@ st.markdown(
 
 @st.cache_resource
 def get_database_connection():
-    """Connect to MongoDB and cache the connection."""
-    try:
-        client = MongoClient(
-            MONGODB_URI,
-            server_api=ServerApi('1'),
-            tlsCAFile=certifi.where()
-        )
-        db = client['cinemaniacs']
-        # Test connection
-        db.movies.count_documents({})
-        return db
-    except Exception as e:
-        st.error(f"Database connection failed: {e}")
+    """Return the cinemaniacs database, or None (with an error shown) if unreachable."""
+    ok, msg = db_ping()
+    if not ok:
+        st.error(msg)
         return None
+    return get_client()["cinemaniacs"]
 
 # =============================================================================
 # ARTIFACT LOADING AND ENSEMBLE PREDICTION SETUP
